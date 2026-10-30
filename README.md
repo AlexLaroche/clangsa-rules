@@ -4,7 +4,8 @@ Clang Static Analyzer checkers ported from
 [0xdea/semgrep-rules](https://github.com/0xdea/semgrep-rules): one checker per
 semgrep rule (50 rules: 49 in `rules/c` plus `rules/noisy/generic/bad-words`),
 registered as `raptor.<CamelCaseRuleName>`, e.g. `raptor-use-after-free` ->
-`raptor.UseAfterFree`.
+`raptor.UseAfterFree`, plus checkers of our own such as
+`raptor.TaintedLengthInCopy`.
 
 Because clang runs the preprocessor, every file that compiles is analysed:
 `#if`/`#else` splits that make semgrep drop whole files (e.g. OpenSSL
@@ -87,6 +88,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.UnsafeRetStrlcpyStrlcat**](src/checkers/UnsafeRetStrlcpyStrlcat.cpp). Potentially unsafe use of the return value of `strlcpy` and `strlcat`.
 * [**raptor.PointerSubtraction**](src/checkers/PointerSubtraction.cpp). Potential use of pointer subtraction to determine size.
 * [**raptor.WriteIntoStackBuffer**](src/checkers/WriteIntoStackBuffer.cpp). Direct write into buffer allocated on the stack.
+* [**raptor.TaintedLengthInCopy**](src/checkers/TaintedLengthInCopy.cpp). Length decoded from untrusted bytes (`n2s`, `ntohs`, `(p[0] << 8) | p[1]`...) used as the size of `memcpy` and friends without a bounds check, as in Heartbleed (CVE-2014-0160). Path-sensitive.
 
 #### integer overflows
 
