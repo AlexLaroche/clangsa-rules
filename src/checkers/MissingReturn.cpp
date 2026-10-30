@@ -1,4 +1,4 @@
-// Port of raptor-missing-return: definition of a non-void function (other
+// raptor.MissingReturn: definition of a non-void function (other
 // than main) whose body contains no `return <expr>;` at all.
 #include "Common.h"
 #include "Registry.h"

@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <cstdint>
 #include <cstddef>
 #include <iostream>

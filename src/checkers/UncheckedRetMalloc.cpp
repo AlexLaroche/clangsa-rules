@@ -1,4 +1,4 @@
-// Port of raptor-unchecked-ret-malloc: `$RET = $FUN(...)` for an allocation
+// raptor.UncheckedRetMalloc: `$RET = $FUN(...)` for an allocation
 // function, unless an `if` reachable afterwards in the CFG mentions $RET in
 // its condition, or the assignment is part of an expression containing a
 // NULL comparison or a logical negation.

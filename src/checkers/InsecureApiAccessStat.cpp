@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-access-stat: any call to access(), faccessat(), faccessat2(), stat(), lstat(), fstatat().
+// raptor.InsecureApiAccessStat: any call to access(), faccessat(), faccessat2(), stat(), lstat(), fstatat().
 #include "ApiUtil.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"

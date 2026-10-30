@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-signal: any call to signal(), gsignal(), ssignal().
+// raptor.InsecureApiSignal: any call to signal(), gsignal(), ssignal().
 #include "ApiUtil.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"

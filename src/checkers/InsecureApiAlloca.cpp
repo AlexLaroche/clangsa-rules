@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-alloca: any call to alloca().
+// raptor.InsecureApiAlloca: any call to alloca().
 #include "ApiUtil.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"

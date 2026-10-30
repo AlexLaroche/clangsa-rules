@@ -1,4 +1,4 @@
-// Port of raptor-missing-default-in-switch: switch statement without a
+// raptor.MissingDefaultInSwitch: switch statement without a
 // default label.
 #include "Common.h"
 #include "Registry.h"

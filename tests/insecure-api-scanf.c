@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/insecure-api-scanf.c (made compilable)
 #include <stdarg.h>
 #include <string.h>
 #include <unistd.h>

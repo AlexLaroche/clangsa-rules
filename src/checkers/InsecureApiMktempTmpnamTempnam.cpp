@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-mktemp-tmpnam-tempnam: any call to mktemp(), tmpnam(), tempnam(), tmpnam_r().
+// raptor.InsecureApiMktempTmpnamTempnam: any call to mktemp(), tmpnam(), tempnam(), tmpnam_r().
 #include "ApiUtil.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"

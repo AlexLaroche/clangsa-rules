@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>

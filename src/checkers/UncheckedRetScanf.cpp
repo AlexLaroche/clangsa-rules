@@ -1,4 +1,4 @@
-// Port of raptor-unchecked-ret-scanf: a *scanf() call whose return value is
+// raptor.UncheckedRetScanf: a *scanf() call whose return value is
 // not assigned, compared, or returned.
 #include "Common.h"
 #include "Registry.h"

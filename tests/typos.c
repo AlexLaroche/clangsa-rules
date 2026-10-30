@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -326,4 +324,25 @@ int main(int argc, char *argv[])
 	p1 = stack;
 	// ...
 	return 0;
+}
+
+#define reject(x, usage) (((x) & 1) && !((x) & (usage)))
+
+int typos_macro_args(int x, unsigned char *t)
+{
+	// ruleid: raptor-typos
+	if (reject(x, 2|4))
+		return 0;
+	// ok: raptor-typos
+	if (((t[1] ^ t[4]) & (t[2] ^ t[5]) & (t[3] ^ t[6])) != 0xff)
+		return 0;
+	return 1;
+}
+
+void *typos_chained_assignment(void **a, void **b)
+{
+	// ruleid: raptor-typos
+	if ((*a = *b = malloc(1)) == NULL)
+		return NULL;
+	return *a;
 }

@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <string.h> /* added for the clang port */
 
 void test_func()

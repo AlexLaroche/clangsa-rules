@@ -1,4 +1,4 @@
-// Port of raptor-unsafe-ret-snprintf-vsnprintf: the return value of
+// raptor.UnsafeRetSnprintfVsnprintf: the return value of
 // snprintf()/vsnprintf() (the length of the string it tried to create) is
 // stored while the format can expand to an arbitrarily long string (%s,
 // %ls, %S, or a non-literal format), and may be used as a size or offset.

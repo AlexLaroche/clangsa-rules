@@ -1,6 +1,3 @@
-// Ported from semgrep-rules/rules/c/mismatched-memory-management.c (made compilable)
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 #include <stdlib.h>
 

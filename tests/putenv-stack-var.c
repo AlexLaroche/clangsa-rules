@@ -1,6 +1,3 @@
-// Ported from semgrep-rules/rules/c/putenv-stack-var.c (made compilable)
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 /* stubs so that the test compiles (assertion macros modeled on Zephyr/lwIP) */
 #include <stdio.h>
 #include <stddef.h>
@@ -146,4 +144,15 @@ int main()
 {
 	printf("Hello, World!");
 	return 0;
+}
+
+/* an assertion compiled out, as with NDEBUG: its arguments are not in the AST */
+#define my_assert(e) ((void)0)
+
+void compiled_out_assert(int n)
+{
+	// ruleid: raptor-suspicious-assert
+	my_assert(n > 0);
+	// ok: raptor-suspicious-assert
+	my_assert(n);
 }

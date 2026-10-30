@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/insecure-api-mktemp-tmpnam-tempnam.c (made compilable)
 #include <stdlib.h>
 
 #include <stdio.h>

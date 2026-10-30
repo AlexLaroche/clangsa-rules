@@ -1,4 +1,4 @@
-// Port of raptor-signed-unsigned-conversion: a signed integer (int, off_t) is
+// raptor.SignedUnsignedConversion: a signed integer (int, off_t) is
 // assigned/returned to an unsigned one (unsigned, size_t) or passed as the
 // size argument of a memory/string API, or an unsigned integer is
 // assigned/returned to a signed integer of the same or smaller width.

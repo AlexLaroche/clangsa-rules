@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/insecure-api-signal.c (made compilable)
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>

@@ -1,4 +1,4 @@
-// Port of raptor-missing-break-in-switch: a case whose statements fall
+// raptor.MissingBreakInSwitch: a case whose statements fall
 // through into the next case/default label because they do not end with
 // break, return, goto or exit().
 #include "Common.h"

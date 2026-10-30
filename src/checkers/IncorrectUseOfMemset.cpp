@@ -1,4 +1,4 @@
-// Port of raptor-incorrect-use-of-memset: memset()/memset_explicit() whose
+// raptor.IncorrectUseOfMemset: memset()/memset_explicit() whose
 // size is 0 (or '\0'), or whose fill byte is a sizeof(...) expression, i.e.
 // the second and third arguments are likely swapped.
 #include "BufHelpers.h"

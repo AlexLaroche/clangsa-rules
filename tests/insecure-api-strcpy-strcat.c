@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/insecure-api-strcpy-strcat.c (made compilable)
 #include <unistd.h>
 #include <netdb.h>
 #include <netinet/in.h>

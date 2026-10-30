@@ -1,4 +1,4 @@
-// Port of raptor-putenv-stack-var: putenv() of a non-static local buffer
+// raptor.PutenvStackVar: putenv() of a non-static local buffer
 // (or a pointer to one). Path-sensitive: the argument's value must point
 // into the stack locals space (static locals live in the globals space).
 #include "Common.h"

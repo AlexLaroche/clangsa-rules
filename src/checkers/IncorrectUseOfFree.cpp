@@ -1,4 +1,4 @@
-// Port of raptor-incorrect-use-of-free: free() of a stack buffer, of a
+// raptor.IncorrectUseOfFree: free() of a stack buffer, of a
 // pointer to one, or of the address of a local variable. Path-sensitive:
 // the argument's value must point into stack memory.
 #include "Common.h"

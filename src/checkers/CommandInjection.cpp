@@ -1,4 +1,4 @@
-// Port of raptor-command-injection: calls to system(), popen(), p2open() and
+// raptor.CommandInjection: calls to system(), popen(), p2open() and
 // wordexp() whose first argument is not a constant string.
 #include "ApiUtil.h"
 #include "Registry.h"

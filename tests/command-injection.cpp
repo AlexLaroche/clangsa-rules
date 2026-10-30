@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/command-injection.c (made compilable; C++ for the C++ constructs)
 #include <wordexp.h>
 
 struct Storer { void store_binary(double); };

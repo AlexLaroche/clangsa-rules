@@ -1,4 +1,4 @@
-// Port of raptor-memory-address-exposure: printf-like calls whose literal
+// raptor.MemoryAddressExposure: printf-like calls whose literal
 // format string contains a %x, %X or %p conversion (semgrep regex
 // `%\w*x`, `%\w*X`, `%\w*p`), which may leak memory addresses.
 #include "BufHelpers.h"

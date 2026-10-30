@@ -1,4 +1,4 @@
-// Port of raptor-bad-words (rules/noisy/generic): words that suggest bugs,
+// raptor.BadWords: words that suggest bugs,
 // security issues or secrets. Like semgrep's generic mode, the regexes run
 // over the raw text of the main file (comments and code alike).
 #include "Common.h"

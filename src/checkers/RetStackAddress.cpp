@@ -1,4 +1,4 @@
-// Port of raptor-ret-stack-address: `return $PTR;` where $PTR is a
+// raptor.RetStackAddress: `return $PTR;` where $PTR is a
 // non-static local array or a pointer to one, or `return &$VAR;` for a
 // non-static local. Path-sensitive: the returned value must point into the
 // current frame's stack locals (static locals live in the globals space).

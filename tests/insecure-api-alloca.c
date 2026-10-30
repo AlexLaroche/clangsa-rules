@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/insecure-api-alloca.c (made compilable)
 int get_nmbr_obj_from_db(void);
 
 #include <stdio.h>

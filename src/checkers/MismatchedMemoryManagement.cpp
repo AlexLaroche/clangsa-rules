@@ -1,4 +1,4 @@
-// Port of raptor-mismatched-memory-management: free($PTR) where $PTR does
+// raptor.MismatchedMemoryManagement: free($PTR) where $PTR does
 // not come from malloc/calloc/realloc/strdup/strndup. Path-sensitive: the
 // symbols returned by those functions are recorded, and free() of any
 // other value (stack memory, parameters, globals, ...) is reported on the

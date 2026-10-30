@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/interesting-api-calls.c (made compilable)
 #include <stdlib.h>
 #include <stdint.h>
 #include <errno.h>

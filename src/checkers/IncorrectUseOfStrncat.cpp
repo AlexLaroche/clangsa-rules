@@ -1,4 +1,4 @@
-// Port of raptor-incorrect-use-of-strncat: strncat() whose size is the size
+// raptor.IncorrectUseOfStrncat: strncat() whose size is the size
 // of the whole destination buffer (array size, sizeof, strlen) or the space
 // left without room for the NUL terminator.
 #include "BufHelpers.h"

@@ -1,4 +1,4 @@
-// Port of raptor-off-by-one: off-by-one array writes, strlen()/sizeof()
+// raptor.OffByOne: off-by-one array writes, strlen()/sizeof()
 // comparisons, strncat() sizes not ending in "- 1", indexing with
 // strlen() - 1 and allocations with no room for the NUL terminator.
 #include "BufHelpers.h"

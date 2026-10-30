@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 
 // ok: raptor-missing-return

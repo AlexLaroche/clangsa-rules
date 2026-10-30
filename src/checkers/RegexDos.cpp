@@ -1,4 +1,4 @@
-// Port of raptor-regex-dos: regcomp() family calls whose regex (a string
+// raptor.RegexDos: regcomp() family calls whose regex (a string
 // literal passed directly, or assigned to a local variable that is then passed)
 // is prone to catastrophic backtracking. semgrep's `redos` metavariable
 // analyzer is approximated by detecting nested unbounded quantifiers, e.g.

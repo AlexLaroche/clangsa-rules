@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 
 void assign_int(int int_var)

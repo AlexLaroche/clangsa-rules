@@ -1,7 +1,8 @@
-// Port of raptor-incorrect-use-of-sizeof: sizeof() applied to a pointer
+// raptor.IncorrectUseOfSizeof: sizeof() applied to a pointer
 // (which yields the word size, not the size of the pointed-to memory):
 //  - sizeof(e) where e has type char *, int *, float * or double *
-//    (string literals excluded);
+//    (string literals and elements of arrays, as in sizeof(a) / sizeof(a[0]),
+//    excluded);
 //  - sizeof(p), sizeof(p + x), sizeof(x + p) where p is a variable or
 //    parameter declared as a pointer (including array parameters);
 //  - sizeof(this) in C++;
@@ -29,6 +30,18 @@ bool hasTypedPointerType(const Expr *E) {
          P->isSpecificBuiltinType(BuiltinType::Double);
 }
 
+// a[i] or *a where a is an array: the element size, as in the element-count
+// idiom sizeof(a) / sizeof(a[0]), even when the elements are pointers.
+bool isArrayElement(const Expr *E) {
+  const Expr *Base = nullptr;
+  if (const auto *AS = dyn_cast<ArraySubscriptExpr>(E))
+    Base = AS->getBase();
+  else if (const auto *UO = dyn_cast<UnaryOperator>(E))
+    if (UO->getOpcode() == UO_Deref)
+      Base = UO->getSubExpr();
+  return Base && Base->IgnoreParenImpCasts()->getType()->isArrayType();
+}
+
 // $PTR declared as `$_ * $PTR` (variable or parameter) or `$_ $PTR[]`
 // (parameter, adjusted to a pointer by the compiler).
 bool isPointerVar(const Expr *E) {
@@ -52,7 +65,8 @@ public:
           if (Arg->isTypeDependent())
             return;
           bool Bad = false;
-          if (hasTypedPointerType(Arg) && !isa<StringLiteral>(Arg))
+          if (hasTypedPointerType(Arg) && !isa<StringLiteral>(Arg) &&
+              !isArrayElement(Arg))
             Bad = true;
           else if (isPointerVar(Arg))
             Bad = true;

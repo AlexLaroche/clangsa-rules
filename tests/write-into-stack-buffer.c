@@ -1,6 +1,3 @@
-// Ported from semgrep-rules/rules/c/write-into-stack-buffer.c (made compilable)
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -68,4 +65,11 @@ int main()
 {
 	printf("Hello, World!");
 	return 0;
+}
+
+/* a parameter declared as an array is a pointer, not a stack buffer */
+void param_array(unsigned char ivec[16], const unsigned char *iv)
+{
+	// ok: raptor-write-into-stack-buffer
+	memcpy(ivec, iv, 16);
 }

@@ -1,4 +1,4 @@
-// Port of raptor-interesting-api-calls: calls to functions whose name matches
+// raptor.InterestingApiCalls: calls to functions whose name matches
 // one of the rule's (case-insensitive) regexes. For the memcpy() family, the
 // length must not be a sizeof expression or a plain integer literal.
 #include "ApiUtil.h"

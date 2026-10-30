@@ -1,4 +1,4 @@
-// Port of raptor-double-free: free($PTR); ... free($PTR); with no
+// raptor.DoubleFree: free($PTR); ... free($PTR); with no
 // `$PTR = ...;` in between. Flow-sensitive walk of the CFG (may-analysis,
 // so a free on any incoming path counts). Path-sensitive tracking of the
 // freed symbol is not used because unix.Malloc (enabled by default) sinks

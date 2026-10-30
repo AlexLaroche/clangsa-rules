@@ -1,6 +1,3 @@
-// Ported from semgrep-rules/rules/c/incorrect-use-of-free.c (made compilable)
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 #include <string.h>
 

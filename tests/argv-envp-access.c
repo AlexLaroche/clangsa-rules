@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/argv-envp-access.c (made compilable)
 #include <string.h>
 
 #include <stdio.h>

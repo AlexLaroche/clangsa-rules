@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-sprintf-vsprintf: sprintf()/vsprintf() calls
+// raptor.InsecureApiSprintfVsprintf: sprintf()/vsprintf() calls
 // whose format, as written, contains %s/%ls/%S or is not a string literal.
 #include "ApiUtil.h"
 #include "Registry.h"

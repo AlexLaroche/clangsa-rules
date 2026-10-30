@@ -18,10 +18,14 @@ struct Registrar {
 } // namespace raptor
 
 // RAPTOR_CHECKER(DoubleFreeChecker, "DoubleFree", "The software calls free() twice ...")
-// registers the checker as raptor.DoubleFree.
+// registers the checker as raptor.DoubleFree. Its documentation URI is its
+// source file, src/checkers/<NAME>.cpp, whose header comment describes the
+// checks.
+#define RAPTOR_DOCS_BASE                                                       \
+  "https://github.com/AlexLaroche/clangsa-rules/blob/main/src/checkers/"
 #define RAPTOR_CHECKER(CLASS, NAME, DESC)                                      \
   static ::raptor::Registrar CLASS##Registrar(                                 \
       [](clang::ento::CheckerRegistry &R) {                                    \
         R.addChecker<CLASS>("raptor." NAME, DESC,                              \
-                            "https://github.com/0xdea/semgrep-rules");         \
+                            RAPTOR_DOCS_BASE NAME ".cpp");                     \
       });

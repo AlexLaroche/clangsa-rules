@@ -1,6 +1,3 @@
-// Ported from semgrep-rules/rules/c/unchecked-ret-malloc.c (made compilable)
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 #include <stdlib.h>
 

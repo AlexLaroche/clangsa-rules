@@ -1,4 +1,4 @@
-// Port of raptor-unsafe-ret-strlcpy-strlcat: the return value of strlcpy()
+// raptor.UnsafeRetStrlcpyStrlcat: the return value of strlcpy()
 // and friends (the length of the string it tried to create) is stored, and
 // may later be used as if it were the number of bytes actually copied.
 #include "Common.h"

@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 #include <syslog.h>
 
@@ -114,4 +112,16 @@ int main(int argc, char **argv)
 	memcpy(buf, argv[1], 5012);
 	printWrapper(argv[1]);
 	return 0;
+}
+
+void fmt_conditional(int mr, int len, char *user)
+{
+	static char umsg[] = "usage: %d\n";
+
+	// ok: raptor-format-string-bugs
+	fprintf(stdout, mr ? ":%d" : "%7d bytes", len);
+	// ok: raptor-format-string-bugs
+	printf(umsg, len);
+	// ruleid: raptor-format-string-bugs
+	printf(mr ? user : "%d", len);
 }

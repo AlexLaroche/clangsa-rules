@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-strcpy-strcat: calls to strcpy(), strcat() and
+// raptor.InsecureApiStrcpyStrcat: calls to strcpy(), strcat() and
 // similar functions, unless the source is a constant string.
 #include "ApiUtil.h"
 #include "Registry.h"

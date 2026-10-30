@@ -1,4 +1,4 @@
-// Port of raptor-write-into-stack-buffer: a non-static local array passed
+// raptor.WriteIntoStackBuffer: a non-static local array passed
 // as the destination of a copy/format/read function. Syntactic, like the
 // semgrep rule ($BUF must be the array itself, declared with a size).
 #include "Common.h"
@@ -27,10 +27,12 @@ bool isCopyFn(StringRef N) {
 }
 
 // `$_ $BUF[$_];` not `static`: a sized local array with automatic storage.
+// A parameter declared as `char buf[16]` is a pointer, not a stack buffer.
 bool isStackArray(const Expr *E) {
   const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
   const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
-  if (!VD || !VD->hasLocalStorage() || !VD->getTypeSourceInfo())
+  if (!VD || isa<ParmVarDecl>(VD) || !VD->hasLocalStorage() ||
+      !VD->getTypeSourceInfo())
     return false;
   auto AT = VD->getTypeSourceInfo()->getTypeLoc().getAs<ArrayTypeLoc>();
   return AT && AT.getSizeExpr();

@@ -1,4 +1,4 @@
-// Port of raptor-incorrect-unsigned-comparison: an unsigned variable compared
+// raptor.IncorrectUnsignedComparison: an unsigned variable compared
 // with `< 0`, `<= 0` or `>= 0` (always false, `== 0`, always true).
 #include "Common.h"
 #include "Registry.h"

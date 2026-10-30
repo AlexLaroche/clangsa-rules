@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/insecure-api-access-stat.c (made compilable; C++ for the C++ constructs)
 #include <stddef.h>
 
 void die(const char *);

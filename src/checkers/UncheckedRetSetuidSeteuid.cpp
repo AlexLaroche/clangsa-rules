@@ -1,4 +1,4 @@
-// Port of raptor-unchecked-ret-setuid-seteuid: setuid()/seteuid() whose
+// raptor.UncheckedRetSetuidSeteuid: setuid()/seteuid() whose
 // return value is not assigned, compared, negated, or returned.
 #include "Common.h"
 #include "Registry.h"

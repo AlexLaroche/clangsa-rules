@@ -1,4 +1,4 @@
-// Port of raptor-high-entropy-assignment: a string literal assigned to a
+// raptor.HighEntropyAssignment: a string literal assigned to a
 // variable looks like a secret according to semgrep's `entropy` analyzer
 // (src/engine/Entropy.ml, reimplemented here with the same trigram data):
 // more than 64 bits of entropy and an information density above 0.6.
@@ -71,12 +71,23 @@ struct EntropyTables {
   }
 };
 
-class HighEntropyAssignmentChecker : public Checker<check::ASTCodeBody> {
+class HighEntropyAssignmentChecker
+    : public Checker<check::ASTCodeBody, check::ASTDecl<VarDecl>> {
+  // "$X": a (possibly concatenated) literal written entirely in the source;
+  // semgrep does not see the value of `"AES" OPENSSL_VERSION_PTEXT`.
+  static bool isSecretLiteral(const StringLiteral *SL) {
+    static const EntropyTables Tables;
+    if (!SL || !(SL->isOrdinary() || SL->isUTF8()))
+      return false;
+    for (unsigned I = 0, N = SL->getNumConcatenated(); I < N; ++I)
+      if (SL->getStrTokenLoc(I).isMacroID())
+        return false;
+    return Tables.looksSecret(SL->getString());
+  }
+
   void check(const StringLiteral *SL, const Stmt *Where, const Decl *D,
              AnalysisManager &Mgr, BugReporter &BR) const {
-    static const EntropyTables Tables;
-    if (!SL || !(SL->isOrdinary() || SL->isUTF8()) ||
-        !Tables.looksSecret(SL->getString()))
+    if (!isSecretLiteral(SL))
       return;
     raptor::reportAt(BR, this, "High-entropy string assignment",
                      "A high-entropy string is assigned to a variable; it may "
@@ -85,6 +96,19 @@ class HighEntropyAssignmentChecker : public Checker<check::ASTCodeBody> {
   }
 
 public:
+  // file-scope `T x = "..."` (function-local ones are in checkASTCodeBody)
+  void checkASTDecl(const VarDecl *VD, AnalysisManager &Mgr,
+                    BugReporter &BR) const {
+    const Expr *Init = VD->getInit();
+    if (!VD->isFileVarDecl() || !Init ||
+        !isSecretLiteral(dyn_cast<StringLiteral>(Init->IgnoreParenImpCasts())))
+      return;
+    raptor::reportAt(BR, this, "High-entropy string assignment",
+                     "A high-entropy string is assigned to a variable; it may "
+                     "be a hard-coded secret such as a password or API key",
+                     VD);
+  }
+
   void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr,
                         BugReporter &BR) const {
     ASTContext &Ctx = Mgr.getASTContext();

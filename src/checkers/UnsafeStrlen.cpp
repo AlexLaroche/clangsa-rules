@@ -1,4 +1,4 @@
-// Port of raptor-unsafe-strlen: the result of strlen() and friends stored in
+// raptor.UnsafeStrlen: the result of strlen() and friends stored in
 // a (signed or unsigned) short, which is easy to overflow.
 #include "BufHelpers.h"
 #include "Registry.h"

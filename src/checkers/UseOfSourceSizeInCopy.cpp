@@ -1,4 +1,4 @@
-// Port of raptor-use-of-source-size-in-copy: copy functions whose size is
+// raptor.UseOfSourceSizeInCopy: copy functions whose size is
 // derived from the source buffer instead of the destination:
 //  - $FUN($DST, $SRC, $LEN) with $SRC declared as `$_ $SRC[$LEN]` and $DST
 //    not declared as `$_ $DST[$LEN]`;

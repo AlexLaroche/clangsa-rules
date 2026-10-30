@@ -1,4 +1,4 @@
-// Port of raptor-pointer-subtraction: a pointer subtracted from another
+// raptor.PointerSubtraction: a pointer subtracted from another
 // pointer (the semgrep rule matches subtractions of two variables declared as
 // pointers, which is every pointer difference once real types are known).
 #include "Common.h"

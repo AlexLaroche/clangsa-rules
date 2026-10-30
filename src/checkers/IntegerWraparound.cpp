@@ -1,4 +1,4 @@
-// Port of raptor-integer-wraparound:
+// raptor.IntegerWraparound:
 //  1. an allocation size computed with * or + (directly in the argument, or
 //     assigned to the size variable earlier in the function), which can wrap
 //     around and allocate a buffer smaller than intended;

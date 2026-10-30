@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 
 #define BUFSIZE 256

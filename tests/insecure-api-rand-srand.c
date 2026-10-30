@@ -1,6 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/insecure-api-rand-srand.c (made compilable)
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>

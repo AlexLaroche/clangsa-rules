@@ -1,4 +1,4 @@
-// Port of raptor-unterminated-string-strncpy: strncpy() and friends that are
+// raptor.UnterminatedStringStrncpy: strncpy() and friends that are
 // not followed by an explicit NUL termination of the destination
 // ($DST[$_] = NULL, '\0' or 0) later in the same block.
 #include "BufHelpers.h"

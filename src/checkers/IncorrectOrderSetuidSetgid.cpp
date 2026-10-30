@@ -1,4 +1,4 @@
-// Port of raptor-incorrect-order-setuid-setgid: privileges are dropped in the
+// raptor.IncorrectOrderSetuidSetgid: privileges are dropped in the
 // wrong order within a function, so group privileges (or saved root) may be
 // regained afterwards:
 //   setuid(x)  ... setgid()     (x != 0)

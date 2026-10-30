@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-rand-srand: any call to rand(), srand(), drand48(), erand48(), lrand48(), nrand48(), mrand48(), jrand48(), lcong48(), srand48(), seed48().
+// raptor.InsecureApiRandSrand: any call to rand(), srand(), drand48(), erand48(), lrand48(), nrand48(), mrand48(), jrand48(), lcong48(), srand48(), seed48().
 #include "ApiUtil.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"

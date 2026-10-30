@@ -1,4 +1,4 @@
-// Port of raptor-format-string-bugs: printf/scanf/syslog/err-like calls
+// raptor.FormatStringBugs: printf/scanf/syslog/err-like calls
 // whose format argument is not a string literal (nor a gettext() family
 // call returning a translated literal).
 #include "BufHelpers.h"
@@ -38,14 +38,36 @@ const llvm::StringMap<unsigned> &formatFunctions() {
   return M;
 }
 
-bool isSafeFormat(const Expr *E) {
+// A local variable (static or not) initialized with a string literal and never
+// assigned in the function body: semgrep's constant propagation treats it as
+// the literal itself.
+bool isConstantStringVar(const Expr *E, const Stmt *Body) {
+  const auto *DRE = dyn_cast<DeclRefExpr>(E);
+  const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  if (!VD || !VD->isLocalVarDecl() || !VD->getInit() ||
+      !isa<StringLiteral>(ign(VD->getInit())))
+    return false;
+  bool Assigned = false;
+  forEach<BinaryOperator>(Body, [&](const BinaryOperator *BO) {
+    if (BO->isAssignmentOp())
+      if (const auto *L = dyn_cast<DeclRefExpr>(ign(BO->getLHS())))
+        Assigned |= L->getDecl() == VD;
+  });
+  return !Assigned;
+}
+
+// "...", c ? "..." : "...", a gettext() call, or a constant string variable.
+bool isSafeFormat(const Expr *E, const Stmt *Body) {
   E = ign(E);
   if (isa<StringLiteral>(E))
     return true;
+  if (const auto *CO = dyn_cast<ConditionalOperator>(E))
+    return isSafeFormat(CO->getTrueExpr(), Body) &&
+           isSafeFormat(CO->getFalseExpr(), Body);
   if (const auto *CE = dyn_cast<CallExpr>(E))
     return raptor::isOneOf(raptor::calleeName(CE),
                            {"gettext", "dgettext", "dcgettext"});
-  return false;
+  return isConstantStringVar(E, Body);
 }
 
 class FormatStringBugsChecker : public Checker<check::ASTCodeBody> {
@@ -56,7 +78,7 @@ public:
     forEach<CallExpr>(D->getBody(), [&](const CallExpr *CE) {
       auto It = Funcs.find(raptor::calleeName(CE));
       if (It == Funcs.end() || CE->getNumArgs() <= It->second ||
-          isSafeFormat(CE->getArg(It->second)))
+          isSafeFormat(CE->getArg(It->second), D->getBody()))
         return;
       raptor::reportAt(
           BR, this, "Format string bug",

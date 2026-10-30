@@ -1,4 +1,4 @@
-// Port of raptor-overlapping-source-destination: copy/concatenation
+// raptor.OverlappingSourceDestination: copy/concatenation
 // functions (and sprintf/snprintf) whose destination is also a source.
 #include "BufHelpers.h"
 #include "Registry.h"

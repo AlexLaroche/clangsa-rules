@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-ato: any call to atoi(), atol(), atof(), atoll().
+// raptor.InsecureApiAto: any call to atoi(), atol(), atof(), atoll().
 #include "ApiUtil.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"

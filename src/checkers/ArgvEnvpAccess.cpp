@@ -1,4 +1,4 @@
-// Port of raptor-argv-envp-access: any use of an identifier named argv or
+// raptor.ArgvEnvpAccess: any use of an identifier named argv or
 // envp (by name only, like the semgrep rule: main's parameters under other
 // names are not tracked).
 #include "ApiUtil.h"

@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-scanf: scanf() family calls whose format, as
+// raptor.InsecureApiScanf: scanf() family calls whose format, as
 // written, contains %s/%ls/%S or is not a string literal, excluding the
 // sscanf() variants that read from a constant string.
 #include "ApiUtil.h"

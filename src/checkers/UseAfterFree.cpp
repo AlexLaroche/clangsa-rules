@@ -1,4 +1,4 @@
-// Port of raptor-use-after-free: after free($PTR) (and with no
+// raptor.UseAfterFree: after free($PTR) (and with no
 // `$PTR = ...;` in between), a use of $PTR as $PTR->f, $PTR[i], *$PTR,
 // `return $PTR;`, or inside an argument of a call to anything but free().
 // Flow-sensitive walk of the CFG (may-analysis); path-sensitive tracking

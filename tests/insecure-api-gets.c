@@ -1,4 +1,3 @@
-// Ported from semgrep-rules/rules/c/insecure-api-gets.c (made compilable)
 #include <stdio.h>
 
 char *gets(char *s); /* removed from C11 headers */

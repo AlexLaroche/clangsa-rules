@@ -1,4 +1,4 @@
-// Port of raptor-insecure-api-gets: any call to gets().
+// raptor.InsecureApiGets: any call to gets().
 #include "Common.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"

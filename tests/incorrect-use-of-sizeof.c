@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -209,4 +207,16 @@ int main(int argc, char **argv)
 		DoAuthenticatedTask(argv[1]);
 	}
 	return 0;
+}
+
+int count_names(void)
+{
+	static const char *names[] = { "a", "b", "c" };
+	int n = 0;
+
+	// ok: raptor-incorrect-use-of-sizeof
+	n += sizeof(names) / sizeof(names[0]);
+	// ok: raptor-incorrect-use-of-sizeof
+	n += sizeof(names) / sizeof(*names);
+	return n;
 }

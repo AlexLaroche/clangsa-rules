@@ -1,4 +1,4 @@
-// Port of raptor-mismatched-memory-management-cpp: free() of memory not
+// raptor.MismatchedMemoryManagementCpp: free() of memory not
 // from malloc/calloc/realloc/strdup/strndup, `delete` of memory not from
 // scalar `new`, `delete[]` of memory not from `new[]`. Path-sensitive: the
 // allocation family of each returned symbol is recorded, and a release of

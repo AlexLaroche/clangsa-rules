@@ -1,6 +1,3 @@
-// Ported from semgrep-rules/rules/c/use-after-free.c (made compilable)
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

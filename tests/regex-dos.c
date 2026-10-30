@@ -1,5 +1,3 @@
-// Marco Ivaldi <raptor@0xdeadbeef.info>
-// Ported from semgrep-rules/rules/c/regex-dos.c (made compilable)
 #include <stdio.h>
 #include <regex.h>
 

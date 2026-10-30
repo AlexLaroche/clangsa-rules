@@ -1,4 +1,4 @@
-// Port of raptor-integer-truncation: an integer is assigned (or returned) to
+// raptor.IntegerTruncation: an integer is assigned (or returned) to
 // a narrower integer type, or to a signed type of the same width as its
 // unsigned source (e.g. `short s = i;`, `int i = l + 1;`, `char f() { return
 // i; }`). The semgrep rule lists the (destination, source) type pairs

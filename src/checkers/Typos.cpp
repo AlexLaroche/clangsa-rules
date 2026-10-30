@@ -1,11 +1,11 @@
-// Port of raptor-typos: operator mistakes that change the meaning of the code.
+// raptor.Typos: operator mistakes that change the meaning of the code.
 //   for (a == b; ...)            a == b;
 //   if (... a = b ...)           unless (a = b) is compared
 //   if (... a & b ...)           unless (a & b) is compared  (same for |)
 //   a =+ b                       (E op E) for &&, ||, ==, !=, <, <=, >, >=
 //   (char *)p = / == / != '\0'   if (... strcpy()/strncpy() ...)
 //   if (x);   for (a; b; c);     char buf[040];  (octal array size)
-// Operators coming from macro expansions are skipped: semgrep sees the macro
+// Operators coming from macro bodies are skipped: semgrep sees the macro
 // call, not its body (e.g. `if (SSL_in_init(s))` expands to a bitwise &).
 #include "Common.h"
 #include "Registry.h"
@@ -18,7 +18,16 @@ using namespace ento;
 using namespace ast_matchers;
 
 namespace {
-bool fromMacro(const BinaryOperator *BO) { return BO->getOperatorLoc().isMacroID(); }
+// The operator comes from a macro body (an operator written in a macro
+// argument is in the source, where semgrep sees it).
+bool fromMacro(const BinaryOperator *BO, const ASTContext &Ctx) {
+  const SourceManager &SM = Ctx.getSourceManager();
+  for (SourceLocation L = BO->getOperatorLoc(); L.isMacroID();
+       L = SM.getImmediateSpellingLoc(L))
+    if (!SM.isMacroArgExpansion(L))
+      return true;
+  return false;
+}
 
 bool sameExpr(const Expr *A, const Expr *B, const ASTContext &Ctx) {
   llvm::FoldingSetNodeID IA, IB;
@@ -43,6 +52,12 @@ bool isComparedLHS(const Expr *E, ASTContext &Ctx) {
       continue;
     }
     const auto *BO = Parents[0].get<BinaryOperator>();
+    // a & b & c compared: semgrep matches & and | associatively
+    BinaryOperatorKind K = cast<BinaryOperator>(E)->getOpcode();
+    if (BO && (K == BO_And || K == BO_Or) && BO->getOpcode() == K) {
+      Cur = BO;
+      continue;
+    }
     return BO && BO->isComparisonOp() && BO->getLHS() == Cur;
   }
 }
@@ -76,7 +91,7 @@ class TyposChecker : public Checker<check::ASTCodeBody> {
     auto Ops = binaryOperator(hasAnyOperatorName("=", "&", "|")).bind("op");
     for (const BoundNodes &N : match(findAll(Ops), *Cond, Ctx)) {
       const auto *BO = N.getNodeAs<BinaryOperator>("op");
-      if (fromMacro(BO) || isComparedLHS(BO, Ctx))
+      if (fromMacro(BO, Ctx) || isComparedLHS(BO, Ctx))
         continue;
       Assign |= BO->getOpcode() == BO_Assign;
       BitAnd |= BO->getOpcode() == BO_And;
@@ -109,7 +124,7 @@ public:
     for (const BoundNodes &N : match(findAll(forStmt().bind("for")), *Body, Ctx)) {
       const auto *For = N.getNodeAs<ForStmt>("for");
       if (const auto *BO = dyn_cast_or_null<BinaryOperator>(For->getInit()))
-        if (BO->getOpcode() == BO_EQ && !fromMacro(BO))
+        if (BO->getOpcode() == BO_EQ && !fromMacro(BO, Ctx))
           report(For, "Comparison in the initialization of a for loop");
       if (For->getInit() && For->getCond() && For->getInc() &&
           isa<NullStmt>(For->getBody()) && !For->getBody()->getBeginLoc().isMacroID())
@@ -135,14 +150,14 @@ public:
         continue;
       if (const auto *F = Parents[0].get<ForStmt>(); F && F->getBody() != BO)
         continue;
-      if (!fromMacro(BO))
+      if (!fromMacro(BO, Ctx))
         report(BO, "Comparison used as a statement, instead of an assignment");
     }
 
     auto All = binaryOperator().bind("bo");
     for (const BoundNodes &N : match(findAll(All), *Body, Ctx)) {
       const auto *BO = N.getNodeAs<BinaryOperator>("bo");
-      if (fromMacro(BO))
+      if (fromMacro(BO, Ctx))
         continue;
       BinaryOperatorKind K = BO->getOpcode();
       if (K == BO_Assign) {
