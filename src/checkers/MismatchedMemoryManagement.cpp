@@ -2,7 +2,8 @@
 // not come from malloc/calloc/realloc/strdup/strndup. Path-sensitive: the
 // symbols returned by those functions are recorded, and free() of any
 // other value (stack memory, parameters, globals, ...) is reported on the
-// paths where it happens.
+// paths where it happens. free(NULL) is a no-op, so a pointer that is NULL
+// on the current path (e.g. freed after a failed allocation) is not reported.
 #include "Common.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
@@ -17,11 +18,26 @@ using namespace ento;
 REGISTER_SET_WITH_PROGRAMSTATE(RaptorMallocedSyms, SymbolRef)
 
 namespace {
+// The symbol of the allocation V points into. Looks through pointer/integer
+// round trips such as free((void *)(size_t)p), which turn the pointer into a
+// nonloc::LocAsInteger.
 SymbolRef baseSymbol(SVal V) {
+  if (auto LI = V.getAs<nonloc::LocAsInteger>())
+    V = LI->getLoc();
   if (const MemRegion *R = V.getAsRegion())
     if (const auto *SR = dyn_cast<SymbolicRegion>(R->getBaseRegion()))
       return SR->getSymbol();
   return nullptr;
+}
+
+// True if V is NULL on the current path: a null constant, or a value the
+// path constraints force to be NULL.
+bool isNullOnPath(SVal V, ProgramStateRef State) {
+  if (V.isZeroConstant())
+    return true;
+  if (auto DV = V.getAs<DefinedOrUnknownSVal>())
+    return State->isNull(*DV).isConstrainedTrue();
+  return false;
 }
 
 class MismatchedMemoryManagementChecker
@@ -43,7 +59,10 @@ public:
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const {
     if (!Call.isGlobalCFunction("free") || Call.getNumArgs() != 1)
       return;
-    SymbolRef S = baseSymbol(Call.getArgSVal(0));
+    SVal Arg = Call.getArgSVal(0);
+    if (isNullOnPath(Arg, C.getState()))
+      return;
+    SymbolRef S = baseSymbol(Arg);
     if (S && C.getState()->contains<RaptorMallocedSyms>(S))
       return;
     ExplodedNode *N = C.generateNonFatalErrorNode();
