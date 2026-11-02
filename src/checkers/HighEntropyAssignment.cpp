@@ -122,8 +122,14 @@ public:
          match(stmt(forEachDescendant(varDecl(hasInitializer(expr())).bind("v"))),
                *D->getBody(), Ctx)) {
       const auto *VD = N.getNodeAs<VarDecl>("v");
-      check(dyn_cast<StringLiteral>(VD->getInit()->IgnoreParenImpCasts()),
-            VD->getInit(), D, Mgr, BR);
+      // hasInitializer() also matches a redeclaration (e.g. a block-scope
+      // `extern T x;`) whose initializer is on another declaration; such a
+      // VarDecl has no initializer of its own.
+      const Expr *Init = VD->getInit();
+      if (!Init)
+        continue;
+      check(dyn_cast<StringLiteral>(Init->IgnoreParenImpCasts()), Init, D, Mgr,
+            BR);
     }
   }
 };

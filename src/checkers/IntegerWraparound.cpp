@@ -83,7 +83,10 @@ class IntegerWraparoundChecker : public Checker<check::ASTCodeBody> {
     for (const BoundNodes &N : match(stmt(forEachDescendant(varDecl(hasInitializer(expr())).bind("v"))),
                                      *D->getBody(), Ctx)) {
       const auto *VD = N.getNodeAs<VarDecl>("v");
-      if (isMulOrAdd(VD->getInit()))
+      // hasInitializer() also matches a redeclaration (e.g. a block-scope
+      // `extern T x;`) whose initializer is on another declaration; such a
+      // VarDecl has no initializer of its own.
+      if (VD->getInit() && isMulOrAdd(VD->getInit()))
         Computed[VD].push_back(VD->getBeginLoc());
     }
 

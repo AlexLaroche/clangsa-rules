@@ -362,3 +362,15 @@ int main()
 	printf("Hello, World!");
 	return 0;
 }
+
+// Regression test for a crash found on dotnet/runtime (EventPipe): a
+// block-scope extern redeclaration of an initialized variable matches
+// hasInitializer() (which looks at any redeclaration), but has no
+// initializer of its own (getInit() is NULL).
+int redeclared_count = 3;
+void *uses_block_scope_extern(void)
+{
+	extern int redeclared_count;
+	// ok: raptor-integer-wraparound
+	return malloc((size_t)redeclared_count);
+}
