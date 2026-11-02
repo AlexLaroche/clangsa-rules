@@ -19,7 +19,9 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DIAG = re.compile(r'^(?P<file>[^:\n]+):(?P<line>\d+):(?P<col>\d+): warning: (?P<msg>.*) \[(?P<checker>raptor\.\w+)\]$', re.M)
-ERROR = re.compile(r'^(?:[^:\n]+:\d+:\d+: |clang: )?(?:fatal )?error: .*$', re.M)
+# compiler errors, including the driver's own (`clang-18: error: clang frontend
+# command failed ...` when clang crashes)
+ERROR = re.compile(r'^(?:[^:\n]+:\d+:\d+: |clang[\w.+-]*: )?(?:fatal )?error: .*$', re.M)
 # flags that make no sense for analysis
 DROP_WITH_ARG = {'-o', '-MF', '-MT', '-MQ'}
 DROP = {'-c', '-MD', '-MMD', '-M', '-MM', '-MP'}
@@ -60,6 +62,8 @@ def run(entry, plugin, checkers, timeout):
         found.append({'file': f, 'line': int(m['line']), 'col': int(m['col']),
                       'checker': m['checker'], 'message': m['msg']})
     errors = ERROR.findall(p.stderr)
+    if not errors and p.returncode != 0:
+        errors = [f'clang exited with code {p.returncode}']
     return entry['file'], found, (errors[0] if errors else None)
 
 
