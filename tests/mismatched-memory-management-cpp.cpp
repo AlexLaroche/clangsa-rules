@@ -75,6 +75,40 @@ void B::good3()
 	delete[] p;
 }
 
+// Regression tests for false positives found on dotnet/runtime (zstd
+// dictBuilder): free(NULL), delete nullptr and delete[] nullptr are no-ops,
+// so releasing a pointer known to be NULL on this path is not a mismatch.
+void good_release_after_failed_alloc(size_t n)
+{
+	int *p = (int *)malloc(n * sizeof(int));
+	if (p == NULL) {
+		// ok: raptor-mismatched-memory-management-cpp
+		free(p);
+		return;
+	}
+	// ok: raptor-mismatched-memory-management-cpp
+	free(p);
+}
+
+void good_release_null(void)
+{
+	int *a = nullptr;
+	int *b = nullptr;
+	// ok: raptor-mismatched-memory-management-cpp
+	free(NULL);
+	// ok: raptor-mismatched-memory-management-cpp
+	delete a;
+	// ok: raptor-mismatched-memory-management-cpp
+	delete[] b;
+}
+
+void good_free_through_int_cast(size_t n)
+{
+	char *p = (char *)malloc(n);
+	// ok: raptor-mismatched-memory-management-cpp
+	free((void *)(size_t)p);
+}
+
 int main()
 {
 	printf("Hello, World!");
