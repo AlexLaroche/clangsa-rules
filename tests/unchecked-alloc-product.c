@@ -1,8 +1,8 @@
 // raptor.UncheckedAllocProduct: a buffer is allocated with a 32-bit product
-// of two run-time factors (rows * stride) and then filled row by row in a loop
-// bounded by one factor, with no overflow guard on the factors. When the
-// product wraps, the allocation is small while the loop still writes
-// rows * stride bytes (CWE-190 -> CWE-787, heap overflow).
+// of two run-time factors (rows * stride, w * h), with no overflow guard on
+// the factors. When the product wraps, the allocation is small while the code
+// filling it (a loop here, or the caller) still writes rows * stride
+// elements (CWE-190 -> CWE-787, heap overflow).
 // Modelled on CVE-2026-70628 / CVE-2026-70632 (FFmpeg < 9.0,
 // libavformat/rawutils.c ff_reshuffle_raw_rgb):
 //   av_new_packet(new_pkt, expected_stride * par->height);
@@ -10,6 +10,7 @@
 // The fix rejects `expected_stride > (INT_MAX - PADDING) / par->height`.
 #include <limits.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -93,9 +94,9 @@ int *ints(int n) {
   return v;
 }
 
-// No loop writes the buffer.
+// Filled elsewhere: still a wrapped allocation.
 void *blob(int a, int b) {
-  // ok: raptor-unchecked-alloc-product
+  // ruleid: raptor-unchecked-alloc-product
   return malloc(a * b);
 }
 
@@ -109,4 +110,69 @@ unsigned char *rows_builtin(int rows, int stride, const unsigned char *src) {
   for (int r = 0; r < rows; r++)
     memcpy(b + r * stride, src, stride);
   return b;
+}
+
+// CVE-2016-9118 (OpenJPEG < 2.2.0, opj_image_create): w and h come from the
+// image header; the caller fills w * h samples.
+typedef struct {
+  unsigned int w, h;
+  int *data;
+} Comp;
+void *opj_calloc(size_t n, size_t size);
+
+int image_create(Comp *comps, unsigned int numcmpts) {
+  for (unsigned int compno = 0; compno < numcmpts; compno++) {
+    Comp *comp = &comps[compno];
+    // ruleid: raptor-unchecked-alloc-product
+    comp->data = (int *)opj_calloc(comp->w * comp->h, sizeof(int));
+    if (!comp->data)
+      return 0;
+  }
+  return 1;
+}
+
+// The fix: guard, and multiply in size_t.
+int image_create_fixed(Comp *comps, unsigned int numcmpts) {
+  for (unsigned int compno = 0; compno < numcmpts; compno++) {
+    Comp *comp = &comps[compno];
+    if (comp->h != 0 && (size_t)comp->w > SIZE_MAX / comp->h)
+      return 0;
+    // ok: raptor-unchecked-alloc-product
+    comp->data = (int *)opj_calloc((size_t)comp->w * comp->h, sizeof(int));
+    if (!comp->data)
+      return 0;
+  }
+  return 1;
+}
+
+// The size computed into a local first.
+unsigned char *frame(int width, int height) {
+  int size = width * height;
+  // ruleid: raptor-unchecked-alloc-product
+  return malloc(size);
+}
+
+// Both factors bounded by constants: the product cannot wrap.
+unsigned char *thumb(int width, int height) {
+  if (width <= 0 || width > 4096 || height <= 0 || height > 4096)
+    return NULL;
+  // ok: raptor-unchecked-alloc-product
+  return malloc(width * height);
+}
+
+// Guard on the size variable's factors.
+unsigned char *frame_checked(int width, int height) {
+  if (height > 0 && width > INT_MAX / height)
+    return NULL;
+  int size = width * height;
+  // ok: raptor-unchecked-alloc-product
+  return malloc(size);
+}
+
+// A factor held in a local that is only ever a constant (OpenJPEG pi.c).
+int *strides(int numcomps) {
+  int stride;
+  stride = 4 * 33;
+  // ok: raptor-unchecked-alloc-product
+  return malloc(stride * numcomps);
 }
