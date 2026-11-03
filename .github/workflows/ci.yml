@@ -20,7 +20,7 @@ jobs:
     env:
       LLVM_PREFIX: /usr/lib/llvm-${{ matrix.llvm }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       - name: Install LLVM/Clang ${{ matrix.llvm }}
         run: |
