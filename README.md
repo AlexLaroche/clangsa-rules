@@ -6,8 +6,8 @@ semgrep rule (50 rules: 49 in `rules/c` plus `rules/noisy/generic/bad-words`),
 registered as `raptor.<CamelCaseRuleName>`, e.g. `raptor-use-after-free` ->
 `raptor.UseAfterFree`, plus checkers of our own such as
 `raptor.TaintedLengthInCopy`, `raptor.IgnoredStatusReturn`,
-`raptor.UncheckedCursorWrite`, `raptor.UncheckedSourceOffset` and
-`raptor.WStreamLengthUnsealed`.
+`raptor.UncheckedCursorWrite`, `raptor.UncheckedSourceOffset`,
+`raptor.WStreamLengthUnsealed` and `raptor.UncheckedAllocProduct`.
 
 Because clang runs the preprocessor, every file that compiles is analysed:
 `#if`/`#else` splits that make semgrep drop whole files (e.g. OpenSSL
@@ -94,6 +94,7 @@ at both commits, so a case cannot pass because the code moved.
 | `heartbleed` | CVE-2014-0160 | `raptor.TaintedLengthInCopy` | openssl `0d7717f` → `96db902` (1.0.1g) |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
+| `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
 | `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
 | `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
 
@@ -134,6 +135,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 #### integer overflows
 
 * [**raptor.IntegerWraparound**](src/checkers/IntegerWraparound.cpp). Potential integer wraparound errors.
+* [**raptor.UncheckedAllocProduct**](src/checkers/UncheckedAllocProduct.cpp). An allocation sized by a 32-bit product of two run-time factors (`stride * height`) that a loop bounded by one factor then fills, with no overflow guard (`a > INT_MAX / b`, `*_mul_overflow`, `av_size_mult`...): when the product wraps, the loop writes past the small buffer, as in FFmpeg's raw RGB reshuffle (CVE-2026-70628, CVE-2026-70632).
 * [**raptor.UnsafeStrlen**](src/checkers/UnsafeStrlen.cpp). Casting the return value of `strlen` to short might be dangerous.
 * [**raptor.IntegerTruncation**](src/checkers/IntegerTruncation.cpp). Potential integer truncation errors.
 * [**raptor.SignedUnsignedConversion**](src/checkers/SignedUnsignedConversion.cpp). Potential signed/unsigned conversion errors.
