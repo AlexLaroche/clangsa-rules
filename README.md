@@ -5,7 +5,7 @@ Clang Static Analyzer checkers ported from
 semgrep rule (50 rules: 49 in `rules/c` plus `rules/noisy/generic/bad-words`),
 registered as `raptor.<CamelCaseRuleName>`, e.g. `raptor-use-after-free` ->
 `raptor.UseAfterFree`, plus checkers of our own such as
-`raptor.TaintedLengthInCopy`.
+`raptor.TaintedLengthInCopy` and `raptor.IgnoredStatusReturn`.
 
 Because clang runs the preprocessor, every file that compiles is analysed:
 `#if`/`#else` splits that make semgrep drop whole files (e.g. OpenSSL
@@ -142,6 +142,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.SuspiciousAssert**](src/checkers/SuspiciousAssert.cpp). Potentially invalid size check due to use of assertion macros.
 * [**raptor.InterestingApiCalls**](src/checkers/InterestingApiCalls.cpp). Calls to interesting and potentially insecure API functions.
 * [**raptor.UncheckedRetScanf**](src/checkers/UncheckedRetScanf.cpp). Unchecked return code of functions in the `scanf` family.
+* [**raptor.IgnoredStatusReturn**](src/checkers/IgnoredStatusReturn.cpp). Discarded result of a status function defined in the same file (every `return` is a constant such as `BROTLI_TRUE`/`BROTLI_FALSE`, or forwards another status), as in Broccoli2Shell (CVE-2026-111497, Brotli <= 1.0.9 `DecodeLiteralBlockSwitch`). `(void)f()` opts out.
 * [**raptor.InsecureApiAto**](src/checkers/InsecureApiAto.cpp). Use of potentially insecure API functions `atoi`, `atol`, `atof`.
 * [**raptor.HighEntropyAssignment**](src/checkers/HighEntropyAssignment.cpp). Assignment of a high-entropy value that might be a secret.
 * [**raptor.ArgvEnvpAccess**](src/checkers/ArgvEnvpAccess.cpp). Command-line argument or environment variable access.
