@@ -193,7 +193,15 @@
     "vulnerable": "3538578ed0a4a43d057a575fb327444e815dbbb4",
     "fixed": "d32b387f2b0a484599d4587d651891f0c63c4238",
     "fixed_note": "avformat/rawutils: reject raw RGB frames that do not fit an AVPacket (also CVE-2026-70632)",
-    "setup": [],
+    "setup": [
+      [
+        "./configure",
+        "--disable-x86asm",
+        "--disable-programs",
+        "--disable-doc",
+        "--disable-autodetect"
+      ]
+    ],
     "checker": "raptor.UncheckedAllocProduct",
     "args": [
       "-I."
