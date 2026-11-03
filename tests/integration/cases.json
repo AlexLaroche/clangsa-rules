@@ -58,6 +58,106 @@
     }
   },
   {
+    "name": "freerdp-websocket-pong",
+    "cve": "CVE-2026-67292",
+    "repo": "https://github.com/FreeRDP/FreeRDP.git",
+    "vulnerable": "efe40e15d508f9754b7a3af851de4d2a0b1128d8",
+    "fixed": "91bbb4eff1b420399a4567f66667d5cabf52e3f8",
+    "fixed_note": "[core,gateway] fix websocket response length (released in 3.29.0; OSV lists the release and an unrelated merge)",
+    "setup": [
+      [
+        "cmake",
+        "-S",
+        ".",
+        "-B",
+        "build-raptor",
+        "-G",
+        "Ninja",
+        "-DWITH_CLIENT=OFF",
+        "-DWITH_SERVER=OFF",
+        "-DWITH_SAMPLE=OFF",
+        "-DWITH_X11=OFF",
+        "-DWITH_WAYLAND=OFF",
+        "-DWITH_FFMPEG=OFF",
+        "-DWITH_SWSCALE=OFF",
+        "-DWITH_CUPS=OFF",
+        "-DWITH_PULSE=OFF",
+        "-DWITH_ALSA=OFF",
+        "-DWITH_FUSE=OFF",
+        "-DWITH_PCSC=OFF",
+        "-DWITH_KRB5=OFF",
+        "-DWITH_CHANNELS=OFF",
+        "-DWITH_MANPAGES=OFF",
+        "-DWITH_JSON_DISABLED=ON",
+        "-DWITH_CLIENT_SDL=OFF",
+        "-DWITH_SHADOW=OFF",
+        "-DWITH_PROXY=OFF",
+        "-DWITH_PLATFORM_SERVER=OFF",
+        "-DWITH_OPUS=OFF",
+        "-DWITH_LAME=OFF",
+        "-DWITH_FAAD2=OFF",
+        "-DWITH_FAAC=OFF",
+        "-DWITH_SOXR=OFF",
+        "-DWITH_WEBVIEW=OFF",
+        "-DWITH_DSP_FFMPEG=OFF",
+        "-DWITH_URIPARSER=OFF",
+        "-DWITH_AAD=OFF"
+      ]
+    ],
+    "checker": "raptor.WStreamLengthUnsealed",
+    "args": [
+      "-std=gnu11",
+      "-Iinclude",
+      "-Iwinpr/include",
+      "-Ibuild-raptor/include",
+      "-Ibuild-raptor/winpr/include",
+      "-Ilibfreerdp",
+      "-Ibuild-raptor/libfreerdp",
+      "-Ilibfreerdp/core"
+    ],
+    "files": {
+      "libfreerdp/core/gateway/websocket.c": [
+        "const size_t len = Stream_Length\\(sDataPacket\\);",
+        "const size_t len = Stream_Length\\(sPacket\\);"
+      ]
+    }
+  },
+  {
+    "name": "dcmtk-concatenation",
+    "cve": "CVE-2026-97059",
+    "repo": "https://github.com/DCMTK/dcmtk.git",
+    "vulnerable": "30cc1534f26986def8501c94b88833514a6317dc",
+    "fixed": "18379d5b8d234977cc30644e9e70d76d89c87285",
+    "fixed_note": "Fixed heap over-read in ConcatenationLoader. (after DCMTK 3.7.0)",
+    "setup": [
+      [
+        "cmake",
+        "-S",
+        ".",
+        "-B",
+        "build-raptor"
+      ]
+    ],
+    "checker": "raptor.UncheckedSourceOffset",
+    "args": [
+      "-Ibuild-raptor/config/include",
+      "-Iconfig/include",
+      "-Iofstd/include",
+      "-Ioflog/include",
+      "-Idcmdata/include",
+      "-Idcmiod/include",
+      "-Idcmfg/include"
+    ],
+    "files": {
+      "dcmfg/libsrc/concatenationloader.cc": [
+        {
+          "re": "memcpy\\(frame->getPixelData\\(\\), ptr, frame->getLengthInBytes\\(\\)\\);",
+          "count": 2
+        }
+      ]
+    }
+  },
+  {
     "name": "broccoli2shell",
     "cve": "CVE-2026-111497",
     "repo": "https://github.com/google/brotli.git",

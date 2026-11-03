@@ -32,7 +32,7 @@ jobs:
           sudo ./llvm.sh ${{ matrix.llvm }}
           sudo apt-get install -y --no-install-recommends \
             libclang-${{ matrix.llvm }}-dev llvm-${{ matrix.llvm }}-dev \
-            ninja-build uuid-dev
+            ninja-build uuid-dev libssl-dev zlib1g-dev
           echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
 
       - name: Show toolchain

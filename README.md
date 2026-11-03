@@ -5,8 +5,9 @@ Clang Static Analyzer checkers ported from
 semgrep rule (50 rules: 49 in `rules/c` plus `rules/noisy/generic/bad-words`),
 registered as `raptor.<CamelCaseRuleName>`, e.g. `raptor-use-after-free` ->
 `raptor.UseAfterFree`, plus checkers of our own such as
-`raptor.TaintedLengthInCopy`, `raptor.IgnoredStatusReturn` and
-`raptor.UncheckedCursorWrite`.
+`raptor.TaintedLengthInCopy`, `raptor.IgnoredStatusReturn`,
+`raptor.UncheckedCursorWrite`, `raptor.UncheckedSourceOffset` and
+`raptor.WStreamLengthUnsealed`.
 
 Because clang runs the preprocessor, every file that compiles is analysed:
 `#if`/`#else` splits that make semgrep drop whole files (e.g. OpenSSL
@@ -92,13 +93,17 @@ at both commits, so a case cannot pass because the code moved.
 |------|-----|---------|---------------------------|
 | `heartbleed` | CVE-2014-0160 | `raptor.TaintedLengthInCopy` | openssl `0d7717f` → `96db902` (1.0.1g) |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
+| `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
+| `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
 | `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
 
 ```sh
 python3 tools/run_integration.py      # all, or: tools/run_integration.py heartbleed
 ```
 
-It needs network access, `git`, and `perl` (OpenSSL's `./config`).
+It needs network access, `git`, `perl` (OpenSSL's `./config`), `cmake` and `ninja`
+(DCMTK's and FreeRDP's configure steps; FreeRDP also needs the OpenSSL and zlib
+development headers).
 
 ## Rules
 
@@ -123,6 +128,8 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.WriteIntoStackBuffer**](src/checkers/WriteIntoStackBuffer.cpp). Direct write into buffer allocated on the stack.
 * [**raptor.TaintedLengthInCopy**](src/checkers/TaintedLengthInCopy.cpp). Length decoded from untrusted bytes (`n2s`, `ntohs`, `(p[0] << 8) | p[1]`...) used as the size of `memcpy` and friends without a bounds check, as in Heartbleed (CVE-2014-0160). Path-sensitive.
 * [**raptor.UncheckedCursorWrite**](src/checkers/UncheckedCursorWrite.cpp). A buffer passed to a function that writes through a cursor advanced by data-dependent steps (`table += table_size`) without ever comparing it to a bound, when the caller does not compare that buffer pointer to anything either, as in the libwebp Huffman table overflow (CVE-2023-4863). Loops bounded by a parameter are not unbounded writers.
+* [**raptor.UncheckedSourceOffset**](src/checkers/UncheckedSourceOffset.cpp). A `memcpy`/`memmove` reading a buffer obtained from a call at an offset scaled by a loop counter (`base + i * k`), when nothing compares the loop bound, or a size computed from it, with anything: a heap over-read, as in DCMTK's NumberOfFrames copy (CVE-2026-97059).
+* [**raptor.WStreamLengthUnsealed**](src/checkers/WStreamLengthUnsealed.cpp). FreeRDP/WinPR: `Stream_Length()` of a `wStream` that is filled by position (`Stream_Write_*`, `Stream_Seek`...) and never sealed (`Stream_SealLength`) is its capacity, not the data written; streams are followed across the file through fields, variables and parameters. As in the WebSocket Pong over-disclosure (CVE-2026-67292).
 
 #### integer overflows
 
