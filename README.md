@@ -91,8 +91,8 @@ at both commits, so a case cannot pass because the code moved.
 | Case | CVE | Checker | Vulnerable → fixed commit |
 |------|-----|---------|---------------------------|
 | `heartbleed` | CVE-2014-0160 | `raptor.TaintedLengthInCopy` | openssl `0d7717f` → `96db902` (1.0.1g) |
-| `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
+| `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
 
 ```sh
 python3 tools/run_integration.py      # all, or: tools/run_integration.py heartbleed
