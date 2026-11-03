@@ -10,8 +10,12 @@ plugin:
   vulnerable commit   every sink line must be reported by the checker
   fixed commit        no sink line may be reported
 
-Each sink regex must match exactly one line of the file at both commits, so
-a test cannot pass because the line moved or vanished.
+A file maps to a list of sink regexes, used at both commits, or to
+{"vulnerable": [...], "fixed": [...]} when the fix rewrote the sink lines. A
+sink is a regex (it must match exactly one line) or {"re": ..., "count": n}
+(exactly n lines, each one checked). A sink that matches another number of
+lines fails the case, so a test cannot pass because the line moved or
+vanished.
 
   tools/run_integration.py [CASE...] [--plugin build/RaptorCheckers.so]
 """
@@ -69,6 +73,12 @@ def sink_lines(path, pattern):
     return [i for i, l in enumerate(text, 1) if rx.search(l)]
 
 
+def sinks_for(spec, side):
+    """[(regex, expected line count)] for one side of a file entry."""
+    items = spec[side] if isinstance(spec, dict) else spec
+    return [(x, 1) if isinstance(x, str) else (x['re'], x.get('count', 1)) for x in items]
+
+
 def run_case(case, plugin, cache, verbose):
     ok = True
     for side in ('vulnerable', 'fixed'):
@@ -80,7 +90,7 @@ def run_case(case, plugin, cache, verbose):
             out = getattr(e, 'stderr', '') or ''
             print(f'FAIL {case["name"]} {side} {sha[:10]}: checkout/setup failed: {e}\n{out[-2000:]}')
             return False
-        for rel, sinks in case['files'].items():
+        for rel, spec in case['files'].items():
             rc, errors, found = analyze(plugin, src, rel, case['checker'], case.get('args', []))
             label = f'{case["name"]:16} {side:10} {sha[:10]} {rel}'
             if errors or rc != 0:
@@ -90,17 +100,17 @@ def run_case(case, plugin, cache, verbose):
                     print('    ' + e)
                 continue
             problems = []
-            for pat in sinks:
+            for pat, count in sinks_for(spec, side):
                 hits = sink_lines(src / rel, pat)
-                if len(hits) != 1:
-                    problems.append(f'sink /{pat}/ matches {len(hits)} lines {hits}, expected 1')
+                if len(hits) != count:
+                    problems.append(f'sink /{pat}/ matches {len(hits)} lines {hits}, expected {count}')
                     continue
-                line = hits[0]
-                reported = line in found
-                if side == 'vulnerable' and not reported:
-                    problems.append(f'missed sink at line {line} /{pat}/')
-                if side == 'fixed' and reported:
-                    problems.append(f'reported fixed sink at line {line} /{pat}/')
+                for line in hits:
+                    reported = line in found
+                    if side == 'vulnerable' and not reported:
+                        problems.append(f'missed sink at line {line} /{pat}/')
+                    if side == 'fixed' and reported:
+                        problems.append(f'reported fixed sink at line {line} /{pat}/')
             ok &= not problems
             print(f'{"FAIL" if problems else "PASS"} {label}'
                   + (f' ({len(found)} {case["checker"]} findings in file)' if verbose else ''))

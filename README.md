@@ -5,7 +5,8 @@ Clang Static Analyzer checkers ported from
 semgrep rule (50 rules: 49 in `rules/c` plus `rules/noisy/generic/bad-words`),
 registered as `raptor.<CamelCaseRuleName>`, e.g. `raptor-use-after-free` ->
 `raptor.UseAfterFree`, plus checkers of our own such as
-`raptor.TaintedLengthInCopy` and `raptor.IgnoredStatusReturn`.
+`raptor.TaintedLengthInCopy`, `raptor.IgnoredStatusReturn` and
+`raptor.UncheckedCursorWrite`.
 
 Because clang runs the preprocessor, every file that compiles is analysed:
 `#if`/`#else` splits that make semgrep drop whole files (e.g. OpenSSL
@@ -91,6 +92,7 @@ at both commits, so a case cannot pass because the code moved.
 |------|-----|---------|---------------------------|
 | `heartbleed` | CVE-2014-0160 | `raptor.TaintedLengthInCopy` | openssl `0d7717f` → `96db902` (1.0.1g) |
 | `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
+| `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
 
 ```sh
 python3 tools/run_integration.py      # all, or: tools/run_integration.py heartbleed
@@ -120,6 +122,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.PointerSubtraction**](src/checkers/PointerSubtraction.cpp). Potential use of pointer subtraction to determine size.
 * [**raptor.WriteIntoStackBuffer**](src/checkers/WriteIntoStackBuffer.cpp). Direct write into buffer allocated on the stack.
 * [**raptor.TaintedLengthInCopy**](src/checkers/TaintedLengthInCopy.cpp). Length decoded from untrusted bytes (`n2s`, `ntohs`, `(p[0] << 8) | p[1]`...) used as the size of `memcpy` and friends without a bounds check, as in Heartbleed (CVE-2014-0160). Path-sensitive.
+* [**raptor.UncheckedCursorWrite**](src/checkers/UncheckedCursorWrite.cpp). A buffer passed to a function that writes through a cursor advanced by data-dependent steps (`table += table_size`) without ever comparing it to a bound, when the caller does not compare that buffer pointer to anything either, as in the libwebp Huffman table overflow (CVE-2023-4863). Loops bounded by a parameter are not unbounded writers.
 
 #### integer overflows
 
