@@ -74,6 +74,30 @@ Annotation changes from the originals:
   `suspicious-assert.c`, `typos.c`, `write-into-stack-buffer.c`: regression
   tests appended at the end of the file for bugs found on OpenSSL.
 
+### Integration tests
+
+`tests/integration/cases.json` lists real vulnerabilities, each with the
+upstream commit that fixed it and that commit's parent.
+`tools/run_integration.py` fetches both commits (shallow, by SHA, cached in
+`build/integration-src`) and analyses the affected files:
+
+- at the vulnerable commit, every vulnerable line must be reported;
+- at the fixed commit, none of them may be reported (negative test).
+
+Each vulnerable line is located by a regex that must match exactly one line
+at both commits, so a case cannot pass because the code moved.
+
+| Case | CVE | Checker | Vulnerable → fixed commit |
+|------|-----|---------|---------------------------|
+| `heartbleed` | CVE-2014-0160 | `raptor.TaintedLengthInCopy` | openssl `0d7717f` → `96db902` (1.0.1g) |
+| `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
+
+```sh
+python3 tools/run_integration.py      # all, or: tools/run_integration.py heartbleed
+```
+
+It needs network access, `git`, and `perl` (OpenSSL's `./config`).
+
 ## Rules
 
 ### C/C++

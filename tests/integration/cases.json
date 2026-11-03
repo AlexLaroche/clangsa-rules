@@ -1,0 +1,35 @@
+[
+  {
+    "name": "heartbleed",
+    "cve": "CVE-2014-0160",
+    "repo": "https://github.com/openssl/openssl.git",
+    "vulnerable": "0d7717fc9c83dafab8153cbd5e2180e6e04cc802",
+    "fixed": "96db9023b881d7cd9f379b0c154650d6c108e9a3",
+    "fixed_note": "Add heartbeat extension bounds check. (OpenSSL_1_0_1-stable, released in 1.0.1g)",
+    "setup": [["./config", "no-asm"]],
+    "checker": "raptor.TaintedLengthInCopy",
+    "args": ["-I.", "-Iinclude", "-Icrypto", "-DOPENSSL_NO_KRB5"],
+    "files": {
+      "ssl/t1_lib.c": ["memcpy\\(bp, pl, payload\\);"],
+      "ssl/d1_both.c": ["memcpy\\(bp, pl, payload\\);"]
+    }
+  },
+  {
+    "name": "broccoli2shell",
+    "cve": "CVE-2026-111497",
+    "repo": "https://github.com/google/brotli.git",
+    "vulnerable": "e61745a6b7add50d380cfd7d3883dd6c62fc2c71",
+    "fixed": "50a9b70a4d5e1443fc40927952276b68fffa83a0",
+    "fixed_note": "Detect and report invalid stream earlier. (v1.0 branch, released in 1.0.10; cherry-pick of 0ed4268)",
+    "setup": [],
+    "checker": "raptor.IgnoredStatusReturn",
+    "args": ["-Ic/include"],
+    "files": {
+      "c/dec/decode.c": [
+        "DecodeLiteralBlockSwitchInternal\\(0, s\\)",
+        "DecodeCommandBlockSwitchInternal\\(0, s\\)",
+        "DecodeDistanceBlockSwitchInternal\\(0, s\\)"
+      ]
+    }
+  }
+]

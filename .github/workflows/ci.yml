@@ -51,5 +51,8 @@ jobs:
       - name: Build
         run: cmake --build build -j "$(nproc)"
 
-      - name: Test
+      - name: Unit tests
         run: python3 tools/run_tests.py -v
+
+      - name: Integration tests (CVEs, vulnerable and fixed commits)
+        run: python3 tools/run_integration.py -v
