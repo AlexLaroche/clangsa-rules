@@ -20,7 +20,7 @@ public:
     if (!Call.isGlobalCFunction("putenv") || Call.getNumArgs() != 1)
       return;
     const MemRegion *R = Call.getArgSVal(0).getAsRegion();
-    if (!R || !isa<StackLocalsSpaceRegion>(R->getMemorySpace()))
+    if (!R || !isa<StackLocalsSpaceRegion>(raptor::memorySpace(R, C)))
       return;
     ExplodedNode *N = C.generateNonFatalErrorNode();
     if (!N)

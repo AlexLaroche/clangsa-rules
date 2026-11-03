@@ -20,7 +20,7 @@ public:
     if (!Call.isGlobalCFunction("free") || Call.getNumArgs() != 1)
       return;
     const MemRegion *R = Call.getArgSVal(0).getAsRegion();
-    if (!R || !isa<StackSpaceRegion>(R->getMemorySpace()))
+    if (!R || !isa<StackSpaceRegion>(raptor::memorySpace(R, C)))
       return;
     ExplodedNode *N = C.generateNonFatalErrorNode();
     if (!N)

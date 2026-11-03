@@ -23,7 +23,7 @@ public:
     const MemRegion *R = C.getSVal(RV).getAsRegion();
     if (!R)
       return;
-    const auto *SR = dyn_cast<StackLocalsSpaceRegion>(R->getMemorySpace());
+    const auto *SR = dyn_cast<StackLocalsSpaceRegion>(raptor::memorySpace(R, C));
     if (!SR || SR->getStackFrame() != C.getStackFrame())
       return;
     ExplodedNode *N = C.generateNonFatalErrorNode();
