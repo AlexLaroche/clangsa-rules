@@ -100,10 +100,12 @@ at both commits, so a case cannot pass because the code moved.
 | `libmicrodns-rr-decode` | CVE-2020-6072 | `raptor.IgnoredStatusReturn` | libmicrodns `0103f40` → `89de67f` (0.1.2) |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
 | `mbedtls-lms-verify` | CVE-2025-49600 | `raptor.IgnoredStatusReturn` | Mbed TLS `caaffc1` → `ae449bf` (3.6.4, with `MBEDTLS_LMS_PRIVATE`) |
+| `sail-tga-raw-packet` | CVE-2026-40494 | `raptor.UncheckedCursorWrite` | SAIL `c930284` → `45d48d1` |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
 | `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
 | `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
 | `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
+| `freeimage-iff-pbm-rle` | CVE-2026-118752 | `raptor.UncheckedCursorWrite` | FreeImage `5af27d0` → `38fbe82` (3.19.22) |
 
 ```sh
 python3 tools/run_integration.py      # all, or: tools/run_integration.py heartbleed
@@ -136,7 +138,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.WriteIntoStackBuffer**](src/checkers/WriteIntoStackBuffer.cpp). Direct write into buffer allocated on the stack.
 * [**raptor.CopyIgnoresSourceSize**](src/checkers/CopyIgnoresSourceSize.cpp). `memcpy`/`memmove` reads from a struct buffer field (`e->data`, `&s->s3->rrec.data[0]`, also through local pointers) whose own size field is known (`e->size`, `rrec.length`, `buf_len` for `buf`), but the copy length neither comes from that size nor is compared with it: a heap over-read, as in libexif (CVE-2020-0093) and Heartbleed (CVE-2014-0160). Constant lengths, lengths that are plain fields, in-place moves and positions computed from the size are not reported.
 * [**raptor.TaintedLengthInCopy**](src/checkers/TaintedLengthInCopy.cpp). Length decoded from untrusted bytes (`n2s`, `ntohs`, `(p[0] << 8) | p[1]`...) used as the size of `memcpy` and friends without a bounds check, as in Heartbleed (CVE-2014-0160). Path-sensitive.
-* [**raptor.UncheckedCursorWrite**](src/checkers/UncheckedCursorWrite.cpp). A buffer passed to a function that writes through a cursor advanced by data-dependent steps (`table += table_size`) without ever comparing it to a bound, when the caller does not compare that buffer pointer to anything either, as in the libwebp Huffman table overflow (CVE-2023-4863). Loops bounded by a parameter are not unbounded writers.
+* [**raptor.UncheckedCursorWrite**](src/checkers/UncheckedCursorWrite.cpp). A write position advanced by data-dependent steps with no end check, in two shapes. *Unbounded writer*: a buffer passed to a function that advances a cursor in a loop (`table += table_size`) and writes through it without ever comparing it to a bound or counting down the room left, when the caller does not compare that buffer pointer either (libwebp CVE-2023-4863). *Run loop*: an outer loop checks an index against the end (`while (written < line)`), but an inner loop whose count comes from the data moves that index and writes (`for (k = 0; k < count; k++) bits[written++] = b;`) with no clamp on the way to it or inside it (FreeImage CVE-2026-118752, SAIL CVE-2026-40494). Loops bounded by a parameter, writers that count down their room, single offsets, constant runs and runs that test a position in their own condition are not reported.
 * [**raptor.UncheckedSourceOffset**](src/checkers/UncheckedSourceOffset.cpp). A `memcpy`/`memmove` reading a buffer obtained from a call at an offset scaled by a loop counter (`base + i * k`), when nothing compares the loop bound, or a size computed from it, with anything: a heap over-read, as in DCMTK's NumberOfFrames copy (CVE-2026-97059).
 * [**raptor.WStreamLengthUnsealed**](src/checkers/WStreamLengthUnsealed.cpp). FreeRDP/WinPR: `Stream_Length()` of a `wStream` that is filled by position (`Stream_Write_*`, `Stream_Seek`...) and never sealed (`Stream_SealLength`) is its capacity, not the data written; streams are followed across the file through fields, variables and parameters. As in the WebSocket Pong over-disclosure (CVE-2026-67292).
 

@@ -1,18 +1,27 @@
-// raptor.UncheckedCursorWrite: a buffer is passed to an unbounded writer and
-// the caller never compares that buffer pointer to a bound (CWE-787).
+// raptor.UncheckedCursorWrite: a write position advanced by data-dependent
+// steps with no end check (CWE-787). Two shapes:
+//
+// 1. Unbounded writer: a buffer is passed to an unbounded writer and the
+//    caller never compares that buffer pointer to a bound.
+// 2. Run loop (see RunLoops below): an inner loop whose count comes from the
+//    data moves the position of an outer loop that checks the end only
+//    between runs. CVE-2026-118752 (FreeImage IFF PBM ByteRun1),
+//    CVE-2026-40494 (SAIL TGA raw packets).
 //
 // An unbounded writer, for one of its pointer parameters P, is a function
 // defined in this translation unit that
 //   - moves a cursor (P itself, or a local initialised from P) forward by a
-//     non-constant step (`c += step`, `c = c + step`),
+//     non-constant step (`c += step`, `c = c + step`) inside a loop,
 //   - writes through the cursor or P (`c[i] = ...`, `*c = ...`, `c->f = ...`,
 //     or passes it to a call that is not declared to take a const pointer),
 //   - never compares the cursor, P, or a variable of the step in a relational
-//     comparison (<, <=, >, >=), and
+//     comparison (<, <=, >, >=),
 //   - is not told how far to go: no loop around the cursor step has a
 //     condition that mentions a parameter or a local initialised from one
 //     (so `for (y = 0; y < rows; ++y)` and `int lines = h; while (lines--)`
-//     copy loops are not writers in this sense).
+//     copy loops are not writers in this sense), and
+//   - does not count down the room it has (`bufsize -= sz`, `*left -= n`,
+//     on a parameter or a copy of one).
 // A function that passes its own parameter to an unbounded writer, without
 // comparing it, is an unbounded writer too.
 //
@@ -35,6 +44,7 @@
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include <set>
 
 using namespace clang;
 using namespace ento;
@@ -178,15 +188,27 @@ private:
       Controlled.insert(PV);
     for (int Pass = 0; Pass < 3; ++Pass)
       walk(Body, [&](const Stmt *S) {
-        if (const auto *DS = dyn_cast<DeclStmt>(S))
+        if (const auto *DS = dyn_cast<DeclStmt>(S)) {
           for (const Decl *D : DS->decls())
             if (const auto *VD = dyn_cast<VarDecl>(D))
               if (VD->getInit() && mentions(VD->getInit(), Controlled))
                 Controlled.insert(VD);
+        }
       });
+    // Room counters: Controlled values and plain copies of them (`n = cc;`).
+    VarSet Room = Controlled;
+    walk(Body, [&](const Stmt *S) {
+      if (const auto *BO = dyn_cast<BinaryOperator>(S))
+        if (BO->getOpcode() == BO_Assign)
+          if (const VarDecl *L = refVar(BO->getLHS()))
+            if (const VarDecl *R = refVar(BO->getRHS()))
+              if (Controlled.count(R))
+                Room.insert(L);
+    });
 
     VarSet Compared, StepVars;
-    bool Advances = false, LoopBoundByCaller = false, Writes = false, Forwards = false;
+    bool Advances = false, LoopBoundByCaller = false, Writes = false, Forwards = false,
+         CountsRoom = false;
     walk(Body, [&](const Stmt *S) {
       if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
         if (BO->isRelationalOp()) {
@@ -204,8 +226,7 @@ private:
                 Step = Sum->getRHS();
         }
         if (Step && !Step->isValueDependent() && !Step->isIntegerConstantExpr(Ctx)) {
-          Advances = true;
-          varsIn(Step, StepVars);
+          bool InLoop = false;
           for (const Stmt *Up = PM.getParent(S); Up; Up = PM.getParent(Up)) {
             const Stmt *Cond = nullptr;
             if (const auto *F = dyn_cast<ForStmt>(Up))
@@ -214,9 +235,31 @@ private:
               Cond = W->getCond();
             else if (const auto *D = dyn_cast<DoStmt>(Up))
               Cond = D->getCond();
+            else
+              continue;
+            InLoop = true;
             if (Cond && mentions(Cond, Controlled))
               LoopBoundByCaller = true;
           }
+          // A single offset is not a cursor walk.
+          if (InLoop) {
+            Advances = true;
+            varsIn(Step, StepVars);
+          }
+        }
+        // The room left is counted down (`bufsize -= sz`, `*left = *left - n`).
+        if (BO->getOpcode() == BO_SubAssign ||
+            (BO->getOpcode() == BO_Assign && isa<BinaryOperator>(raptor::strip(BO->getRHS())) &&
+             cast<BinaryOperator>(raptor::strip(BO->getRHS()))->getOpcode() == BO_Sub &&
+             raptor_mem::keyOf(cast<BinaryOperator>(raptor::strip(BO->getRHS()))->getLHS()) ==
+                 raptor_mem::keyOf(BO->getLHS()))) {
+          const Expr *Lhs = raptor::strip(BO->getLHS());
+          if (const auto *UO = dyn_cast<UnaryOperator>(Lhs))
+            if (UO->getOpcode() == UO_Deref)
+              Lhs = UO->getSubExpr();
+          if (const VarDecl *R = refVar(Lhs))
+            if (!Cursors.count(R) && Room.count(R))
+              CountsRoom = true;
         }
         if (BO->isAssignmentOp())
           if (const VarDecl *W = writtenBase(BO->getLHS()))
@@ -240,6 +283,8 @@ private:
     for (const VarDecl *C : Cursors)
       if (Compared.count(C))
         return false;
+    if (CountsRoom)
+      return false;
     if (Forwards)
       return true;
     if (!Advances || !Writes || LoopBoundByCaller)
@@ -280,6 +325,333 @@ void calls(const Stmt *S, llvm::SmallVectorImpl<const CallExpr *> &Out) {
     calls(C, Out);
 }
 
+// ---- Run loops ------------------------------------------------------------
+//
+//   while (written < line) {                     // outer: index vs. end
+//     n = read_count();
+//     for (k = 0; k < n + 1; k++)                // run: count from the data
+//       bits[written++] = read_byte();           // moves and writes the index
+//   }
+//
+// The outer condition stops the index at the end only between runs; inside a
+// run nothing does. Reported unless the run is clamped first (a comparison of
+// the index, the end, or a value computed from them, on the path to the run
+// or inside it).
+using Keys = std::set<std::string>;
+
+void keysIn(const Stmt *S, Keys &Out) {
+  if (!S)
+    return;
+  if (isa<DeclRefExpr>(S) || isa<MemberExpr>(S)) {
+    std::string K = raptor_mem::keyOf(cast<Expr>(S));
+    if (!K.empty())
+      Out.insert(K);
+    if (isa<DeclRefExpr>(S))
+      return;
+  }
+  for (const Stmt *C : S->children())
+    keysIn(C, Out);
+}
+
+// Keys of the variables S modifies (++, --, assignments).
+void modifiedIn(const Stmt *S, Keys &Out) {
+  if (!S)
+    return;
+  const Expr *Target = nullptr;
+  if (const auto *UO = dyn_cast<UnaryOperator>(S)) {
+    if (UO->isIncrementDecrementOp())
+      Target = UO->getSubExpr();
+  } else if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
+    if (BO->isAssignmentOp())
+      Target = BO->getLHS();
+  }
+  if (Target && isa<DeclRefExpr>(raptor::strip(Target)))
+    Out.insert(raptor_mem::keyOf(Target));
+  for (const Stmt *C : S->children())
+    modifiedIn(C, Out);
+}
+
+// Variables added up in E (`pos + cur` -> pos, cur), not those that only
+// select a value (`f[i].n`).
+void termsOf(const Expr *E, Keys &Out) {
+  E = raptor::strip(E);
+  if (const auto *BO = dyn_cast_or_null<BinaryOperator>(E)) {
+    if (BO->isAdditiveOp()) {
+      termsOf(BO->getLHS(), Out);
+      termsOf(BO->getRHS(), Out);
+    }
+  } else if (const auto *DRE = dyn_cast_or_null<DeclRefExpr>(E)) {
+    Out.insert(DRE->getDecl()->getNameAsString());
+  }
+}
+
+bool hasRelational(const Stmt *S, const Keys &K) {
+  if (!S)
+    return false;
+  if (const auto *BO = dyn_cast<BinaryOperator>(S))
+    if (BO->isRelationalOp() && raptor_mem::findKey(BO, K))
+      return true;
+  for (const Stmt *C : S->children())
+    if (hasRelational(C, K))
+      return true;
+  return false;
+}
+
+const Stmt *loopCond(const Stmt *S) {
+  if (const auto *F = dyn_cast<ForStmt>(S))
+    return F->getCond();
+  if (const auto *W = dyn_cast<WhileStmt>(S))
+    return W->getCond();
+  if (const auto *D = dyn_cast<DoStmt>(S))
+    return D->getCond();
+  return nullptr;
+}
+
+const Stmt *loopBody(const Stmt *S) {
+  if (const auto *F = dyn_cast<ForStmt>(S))
+    return F->getBody();
+  if (const auto *W = dyn_cast<WhileStmt>(S))
+    return W->getBody();
+  if (const auto *D = dyn_cast<DoStmt>(S))
+    return D->getBody();
+  return nullptr;
+}
+
+bool isLoop(const Stmt *S) { return isa<ForStmt>(S) || isa<WhileStmt>(S) || isa<DoStmt>(S); }
+
+template <class F> void walkStmts(const Stmt *S, F &&Fn) {
+  if (!S)
+    return;
+  Fn(S);
+  for (const Stmt *C : S->children())
+    walkStmts(C, Fn);
+}
+
+// Is a value set from the guard keys (`count = min(count, w - x)`)?
+bool assignsFrom(const Stmt *S, const Keys &Targets, const Keys &From) {
+  bool Hit = false;
+  walkStmts(S, [&](const Stmt *X) {
+    if (const auto *BO = dyn_cast<BinaryOperator>(X)) {
+      if (BO->getOpcode() == BO_Assign && Targets.count(raptor_mem::keyOf(BO->getLHS())) &&
+          raptor_mem::findKey(BO->getRHS(), From))
+        Hit = true;
+    } else if (const auto *DS = dyn_cast<DeclStmt>(X)) {
+      for (const Decl *D : DS->decls())
+        if (const auto *VD = dyn_cast<VarDecl>(D))
+          if (VD->getInit() && Targets.count(VD->getNameAsString()) &&
+              raptor_mem::findKey(VD->getInit(), From))
+            Hit = true;
+    }
+  });
+  return Hit;
+}
+
+class RunLoops {
+  ASTContext &Ctx;
+  ParentMap PM;
+
+public:
+  RunLoops(ASTContext &C, const Stmt *Body) : Ctx(C), PM(const_cast<Stmt *>(Body)) {}
+
+  // The first write of each inner loop of Body that overruns its outer
+  // loop's bound.
+  void find(const Stmt *Body, llvm::SmallVectorImpl<const Stmt *> &Out) {
+    llvm::SmallPtrSet<const Stmt *, 8> Done;
+    walkStmts(Body, [&](const Stmt *L) {
+      if (!isLoop(L))
+        return;
+      const Stmt *Cond = loopCond(L);
+      if (!Cond)
+        return;
+      // Index: compared in the outer condition and moved by the loop.
+      Keys Moved, Index, End;
+      modifiedIn(L, Moved);
+      walkStmts(Cond, [&](const Stmt *X) {
+        const auto *BO = dyn_cast<BinaryOperator>(X);
+        if (!BO || !BO->isRelationalOp())
+          return;
+        Keys Lk, Rk;
+        keysIn(BO->getLHS(), Lk);
+        keysIn(BO->getRHS(), Rk);
+        for (auto [A, B] : {std::pair{&Lk, &Rk}, std::pair{&Rk, &Lk}})
+          for (const std::string &K : *A)
+            if (Moved.count(K)) {
+              Index.insert(K);
+              End.insert(B->begin(), B->end());
+            }
+      });
+      for (const std::string &K : Index)
+        End.erase(K);
+      // A constant end (`len <= 15`) is a count, not a buffer's end.
+      if (Index.empty() || End.empty())
+        return;
+      // Guard keys: index, end, and locals computed from them (`remaining`).
+      Keys Guard = Index;
+      Guard.insert(End.begin(), End.end());
+      for (int Pass = 0; Pass < 2; ++Pass)
+        walkStmts(loopBody(L), [&](const Stmt *X) {
+          if (const auto *DS = dyn_cast<DeclStmt>(X))
+            for (const Decl *D : DS->decls())
+              if (const auto *VD = dyn_cast<VarDecl>(D))
+                if (VD->getInit() && raptor_mem::findKey(VD->getInit(), Guard))
+                  Guard.insert(VD->getNameAsString());
+        });
+      walkStmts(loopBody(L), [&](const Stmt *R) {
+        if (!isLoop(R) || Done.count(R))
+          return;
+        if (const Stmt *W = overruns(L, R, Index, End, Guard)) {
+          Done.insert(R);
+          Out.push_back(W);
+        }
+      });
+    });
+  }
+
+private:
+  const Stmt *overruns(const Stmt *L, const Stmt *R, const Keys &Index, const Keys &End,
+                       const Keys &Guard) {
+    const Stmt *RCond = loopCond(R);
+    if (!RCond || raptor_mem::findKey(RCond, End))
+      return nullptr;
+    // A counted run: `k < n`, `n--`. Two comparisons mean the run also tests
+    // a position (`j < c && x < width`).
+    unsigned Rel = 0;
+    bool Counts = false;
+    walkStmts(RCond, [&](const Stmt *X) {
+      if (const auto *BO = dyn_cast<BinaryOperator>(X))
+        Rel += BO->isRelationalOp();
+      if (const auto *UO = dyn_cast<UnaryOperator>(X))
+        Counts |= UO->isIncrementDecrementOp();
+    });
+    if (Rel > 1 || (Rel == 0 && !Counts))
+      return nullptr;
+    // Run variables: the inner loop's own counter (set in its init).
+    Keys Own;
+    if (const auto *F = dyn_cast<ForStmt>(R)) {
+      modifiedIn(F->getInit(), Own);
+      if (const auto *DS = dyn_cast_or_null<DeclStmt>(F->getInit()))
+        for (const Decl *D : DS->decls())
+          if (const auto *VD = dyn_cast<VarDecl>(D))
+            Own.insert(VD->getNameAsString());
+    }
+    // The count: what else the inner condition depends on.
+    Keys Count;
+    keysIn(RCond, Count);
+    for (const std::string &K : Index)
+      Count.erase(K);
+    for (const std::string &K : Own)
+      Count.erase(K);
+    if (Count.empty())
+      return nullptr;
+    // The run moves the index: inside it, by its condition, or by the count.
+    Keys InR;
+    modifiedIn(R, InR);
+    bool Moves = false;
+    walkStmts(RCond, [&](const Stmt *X) {
+      if (const auto *BO = dyn_cast<BinaryOperator>(X))
+        if (BO->isRelationalOp()) {
+          Keys T;
+          termsOf(BO->getLHS(), T);
+          termsOf(BO->getRHS(), T);
+          for (const std::string &K : Index)
+            Moves |= T.count(K) > 0;
+        }
+    });
+    for (const std::string &K : Index)
+      Moves |= InR.count(K) > 0;
+    if (!Moves)
+      walkStmts(loopBody(L), [&](const Stmt *X) {
+        if (const auto *BO = dyn_cast<BinaryOperator>(X))
+          if ((BO->getOpcode() == BO_AddAssign || BO->getOpcode() == BO_SubAssign) &&
+              Index.count(raptor_mem::keyOf(BO->getLHS())) &&
+              raptor_mem::findKey(BO->getRHS(), Count))
+            Moves = true;
+      });
+    if (!Moves)
+      return nullptr;
+    // Write positions: the index, the run counter when it starts at the
+    // index, and pointers moved by the run.
+    Keys At = Index;
+    if (const auto *F = dyn_cast<ForStmt>(R))
+      if (raptor_mem::findKey(F->getInit(), Index))
+        At.insert(Own.begin(), Own.end());
+    Keys Ptrs;
+    walkStmts(R, [&](const Stmt *X) {
+      if (const auto *BO = dyn_cast<BinaryOperator>(X))
+        if ((BO->getOpcode() == BO_AddAssign || BO->getOpcode() == BO_SubAssign) &&
+            BO->getLHS()->getType()->isPointerType())
+          Ptrs.insert(raptor_mem::keyOf(BO->getLHS()));
+      if (const auto *UO = dyn_cast<UnaryOperator>(X))
+        if (UO->isIncrementDecrementOp() && UO->getSubExpr()->getType()->isPointerType())
+          Ptrs.insert(raptor_mem::keyOf(UO->getSubExpr()));
+    });
+    Ptrs.erase("");
+    At.insert(Ptrs.begin(), Ptrs.end());
+    const Stmt *W = firstWrite(R, At, Ptrs);
+    if (!W)
+      return nullptr;
+    // Clamped inside the run...
+    if (hasRelational(loopBody(R), Guard))
+      return nullptr;
+    if (const auto *F = dyn_cast<ForStmt>(R))
+      if (hasRelational(F->getInc(), Guard))
+        return nullptr;
+    // ...or on the way to it.
+    const Stmt *Child = R;
+    for (const Stmt *Up = PM.getParent(R); Up && Child != loopBody(L);
+         Child = Up, Up = PM.getParent(Up)) {
+      if (const auto *CS = dyn_cast<CompoundStmt>(Up)) {
+        for (const Stmt *Sib : CS->body()) {
+          if (Sib == Child)
+            break;
+          if (hasRelational(Sib, Guard) || assignsFrom(Sib, Count, Guard))
+            return nullptr;
+        }
+      } else if (const auto *If = dyn_cast<IfStmt>(Up)) {
+        if (Child != If->getCond() && hasRelational(If->getCond(), Guard))
+          return nullptr;
+      }
+      if (Up == L)
+        break;
+    }
+    return W;
+  }
+
+  // The first store of R through a position in At, or call handed a moved
+  // pointer that it may write through.
+  const Stmt *firstWrite(const Stmt *R, const Keys &At, const Keys &Ptrs) {
+    const Stmt *W = nullptr;
+    walkStmts(R, [&](const Stmt *X) {
+      if (W)
+        return;
+      if (const auto *BO = dyn_cast<BinaryOperator>(X)) {
+        if (!BO->isAssignmentOp())
+          return;
+        const Expr *L = raptor::strip(BO->getLHS());
+        if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(L))
+          W = raptor_mem::findKey(ASE->getBase(), At) || raptor_mem::findKey(ASE->getIdx(), At)
+                  ? X
+                  : nullptr;
+        else if (const auto *UO = dyn_cast<UnaryOperator>(L))
+          W = UO->getOpcode() == UO_Deref && raptor_mem::findKey(UO->getSubExpr(), At) ? X
+                                                                                       : nullptr;
+      } else if (const auto *CE = dyn_cast<CallExpr>(X)) {
+        const FunctionDecl *FD = CE->getDirectCallee();
+        for (unsigned I = 0; I < CE->getNumArgs(); ++I) {
+          const Expr *A = raptor::strip(CE->getArg(I));
+          if (!A->getType()->isPointerType() || !Ptrs.count(raptor_mem::keyOf(pointerBase(A))))
+            continue;
+          if (!FD || !constPointee(FD, I)) {
+            W = X;
+            return;
+          }
+        }
+      }
+    });
+    return W;
+  }
+};
+
 class UncheckedCursorWriteChecker : public Checker<check::ASTCodeBody> {
 public:
   void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr, BugReporter &BR) const {
@@ -288,6 +660,14 @@ public:
       return;
     ASTContext &Ctx = Mgr.getASTContext();
     Analysis A(Ctx);
+    llvm::SmallVector<const Stmt *, 8> Runs;
+    RunLoops(Ctx, Body).find(Body, Runs);
+    for (const Stmt *R : Runs)
+      raptor::reportAt(BR, this, "Unchecked cursor write",
+                       "Write in a run whose count comes from the data: the run moves the "
+                       "enclosing loop's position, which is checked against the end only "
+                       "between runs, and nothing clamps the run to the room left (CWE-787)",
+                       R, Mgr.getAnalysisDeclContext(D));
     llvm::SmallVector<const CallExpr *, 32> Calls;
     calls(Body, Calls);
     for (const CallExpr *CE : Calls) {

@@ -232,6 +232,39 @@
     }
   },
   {
+    "name": "sail-tga-raw-packet",
+    "cve": "CVE-2026-40494",
+    "repo": "https://github.com/happyseafox/sail.git",
+    "vulnerable": "c930284445ea3ff94451ccd7a57c999eca3bc979",
+    "fixed": "45d48d1f2e8e0d73e80bc1fd5310cb57f4547302",
+    "fixed_note": "TGA: Fixed buffer overflow reported in GHSA-cp2j-rwh4-r46f",
+    "setup": [
+      [
+        "cmake",
+        "-S",
+        ".",
+        "-B",
+        "build-raptor",
+        "-DSAIL_ONLY_CODECS=tga",
+        "-DSAIL_BUILD_APPS=OFF",
+        "-DSAIL_BUILD_EXAMPLES=OFF",
+        "-DSAIL_BUILD_TESTS=OFF"
+      ]
+    ],
+    "checker": "raptor.UncheckedCursorWrite",
+    "args": [
+      "-DSAIL_BUILD",
+      "-D_POSIX_C_SOURCE=200112L",
+      "-Isrc",
+      "-Ibuild-raptor/include"
+    ],
+    "files": {
+      "src/sail-codecs/tga/tga.c": [
+        "SAIL_TRY\\(tga_state->io->strict_read\\(tga_state->io->stream, pixels, pixel_size\\)\\);"
+      ]
+    }
+  },
+  {
     "name": "freerdp-websocket-pong",
     "cve": "CVE-2026-67292",
     "repo": "https://github.com/FreeRDP/FreeRDP.git",
@@ -374,6 +407,27 @@
         "DecodeLiteralBlockSwitchInternal\\(0, s\\)",
         "DecodeCommandBlockSwitchInternal\\(0, s\\)",
         "DecodeDistanceBlockSwitchInternal\\(0, s\\)"
+      ]
+    }
+  },
+  {
+    "name": "freeimage-iff-pbm-rle",
+    "cve": "CVE-2026-118752",
+    "repo": "https://github.com/danoli3/freeimage.git",
+    "vulnerable": "5af27d055ad31fbf99631a55a5de19b3820a4790",
+    "fixed": "38fbe82eaa4f6e1fb9f7b059028a273b09ca2e41",
+    "fixed_note": "fix heap overflow in IFF PBM RLE decompression (3.19.22)",
+    "setup": [],
+    "checker": "raptor.UncheckedCursorWrite",
+    "args": [
+      "-ISource"
+    ],
+    "files": {
+      "Source/FreeImage/PluginIFF.cpp": [
+        {
+          "re": "^\\s*bits\\[number_of_bytes_written\\+\\+\\] \\+= byte;",
+          "count": 2
+        }
       ]
     }
   }
