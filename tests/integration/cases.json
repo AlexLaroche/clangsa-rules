@@ -29,6 +29,35 @@
     }
   },
   {
+    "name": "heartbleed-source-size",
+    "cve": "CVE-2014-0160",
+    "repo": "https://github.com/openssl/openssl.git",
+    "vulnerable": "0d7717fc9c83dafab8153cbd5e2180e6e04cc802",
+    "fixed": "96db9023b881d7cd9f379b0c154650d6c108e9a3",
+    "fixed_note": "Add heartbeat extension bounds check (1.0.1g); same commits as heartbleed, second rule",
+    "setup": [
+      [
+        "./config",
+        "no-asm"
+      ]
+    ],
+    "checker": "raptor.CopyIgnoresSourceSize",
+    "args": [
+      "-I.",
+      "-Iinclude",
+      "-Icrypto",
+      "-DOPENSSL_NO_KRB5"
+    ],
+    "files": {
+      "ssl/t1_lib.c": [
+        "memcpy\\(bp, pl, payload\\);"
+      ],
+      "ssl/d1_both.c": [
+        "memcpy\\(bp, pl, payload\\);"
+      ]
+    }
+  },
+  {
     "name": "openjpeg-image-create",
     "cve": "CVE-2016-9118",
     "repo": "https://github.com/uclouvain/openjpeg.git",
@@ -90,6 +119,35 @@
           "count": 2
         }
       ]
+    }
+  },
+  {
+    "name": "libexif-save-entry",
+    "cve": "CVE-2020-0093",
+    "repo": "https://github.com/libexif/libexif.git",
+    "vulnerable": "154189b77491191e00e1204083ab51c4ad5a60ff",
+    "fixed": "5ae5973bed1947f4d447dc80b76d5cefadd90133",
+    "fixed_note": "libexif: Fix read buffer overflow (CVE-2020-0093) (0.6.22)",
+    "setup": [
+      [
+        "sh",
+        "-c",
+        "printf '#include <stdint.h>\\n' > libexif/_stdint.h && : > config.h"
+      ]
+    ],
+    "checker": "raptor.CopyIgnoresSourceSize",
+    "args": [
+      "-I."
+    ],
+    "files": {
+      "libexif/exif-data.c": {
+        "vulnerable": [
+          "memcpy \\(\\*d \\+ 6 \\+ doff, e->data, s\\);"
+        ],
+        "fixed": [
+          "memcpy \\(\\*d \\+ 6 \\+ doff, e->data, len\\);"
+        ]
+      }
     }
   },
   {

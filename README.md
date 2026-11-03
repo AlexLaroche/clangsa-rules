@@ -7,7 +7,8 @@ registered as `raptor.<CamelCaseRuleName>`, e.g. `raptor-use-after-free` ->
 `raptor.UseAfterFree`, plus checkers of our own such as
 `raptor.TaintedLengthInCopy`, `raptor.IgnoredStatusReturn`,
 `raptor.UncheckedCursorWrite`, `raptor.UncheckedSourceOffset`,
-`raptor.WStreamLengthUnsealed` and `raptor.UncheckedAllocProduct`.
+`raptor.WStreamLengthUnsealed`, `raptor.UncheckedAllocProduct` and
+`raptor.CopyIgnoresSourceSize`.
 
 Because clang runs the preprocessor, every file that compiles is analysed:
 `#if`/`#else` splits that make semgrep drop whole files (e.g. OpenSSL
@@ -92,8 +93,10 @@ at both commits, so a case cannot pass because the code moved.
 | Case | CVE | Checker | Vulnerable → fixed commit |
 |------|-----|---------|---------------------------|
 | `heartbleed` | CVE-2014-0160 | `raptor.TaintedLengthInCopy` | openssl `0d7717f` → `96db902` (1.0.1g) |
+| `heartbleed-source-size` | CVE-2014-0160 | `raptor.CopyIgnoresSourceSize` | openssl `0d7717f` → `96db902` (1.0.1g) |
 | `openjpeg-image-create` | CVE-2016-9118 | `raptor.UncheckedAllocProduct` | OpenJPEG `83342f2` → `c22cbd8` (2.2.0) |
 | `libtiff-rgba-strip` | CVE-2019-17546 | `raptor.UncheckedAllocProduct` | libtiff `2218055` → `4bb584a` (4.1.0, 32-bit build) |
+| `libexif-save-entry` | CVE-2020-0093 | `raptor.CopyIgnoresSourceSize` | libexif `154189b` → `5ae5973` (0.6.22) |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
 | `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
@@ -129,6 +132,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.UnsafeRetStrlcpyStrlcat**](src/checkers/UnsafeRetStrlcpyStrlcat.cpp). Potentially unsafe use of the return value of `strlcpy` and `strlcat`.
 * [**raptor.PointerSubtraction**](src/checkers/PointerSubtraction.cpp). Potential use of pointer subtraction to determine size.
 * [**raptor.WriteIntoStackBuffer**](src/checkers/WriteIntoStackBuffer.cpp). Direct write into buffer allocated on the stack.
+* [**raptor.CopyIgnoresSourceSize**](src/checkers/CopyIgnoresSourceSize.cpp). `memcpy`/`memmove` reads from a struct buffer field (`e->data`, `&s->s3->rrec.data[0]`, also through local pointers) whose own size field is known (`e->size`, `rrec.length`, `buf_len` for `buf`), but the copy length neither comes from that size nor is compared with it: a heap over-read, as in libexif (CVE-2020-0093) and Heartbleed (CVE-2014-0160). Constant lengths, lengths that are plain fields, in-place moves and positions computed from the size are not reported.
 * [**raptor.TaintedLengthInCopy**](src/checkers/TaintedLengthInCopy.cpp). Length decoded from untrusted bytes (`n2s`, `ntohs`, `(p[0] << 8) | p[1]`...) used as the size of `memcpy` and friends without a bounds check, as in Heartbleed (CVE-2014-0160). Path-sensitive.
 * [**raptor.UncheckedCursorWrite**](src/checkers/UncheckedCursorWrite.cpp). A buffer passed to a function that writes through a cursor advanced by data-dependent steps (`table += table_size`) without ever comparing it to a bound, when the caller does not compare that buffer pointer to anything either, as in the libwebp Huffman table overflow (CVE-2023-4863). Loops bounded by a parameter are not unbounded writers.
 * [**raptor.UncheckedSourceOffset**](src/checkers/UncheckedSourceOffset.cpp). A `memcpy`/`memmove` reading a buffer obtained from a call at an offset scaled by a loop counter (`base + i * k`), when nothing compares the loop bound, or a size computed from it, with anything: a heap over-read, as in DCMTK's NumberOfFrames copy (CVE-2026-97059).
