@@ -61,6 +61,38 @@
     }
   },
   {
+    "name": "libtiff-rgba-strip",
+    "cve": "CVE-2019-17546",
+    "repo": "https://gitlab.com/libtiff/libtiff.git",
+    "vulnerable": "2218055ca67d84be596a13080e8f50f22116555c",
+    "fixed": "4bb584a35f87af42d6cf09d15e9ce8909a839145",
+    "fixed_note": "RGBA interface: fix integer overflow potentially causing write heap buffer overflow, especially on 32 bit builds (4.1.0); analysed as a 32-bit build",
+    "setup": [
+      [
+        "cmake",
+        "-S",
+        ".",
+        "-B",
+        "build-raptor",
+        "-DCMAKE_C_FLAGS=-m32"
+      ]
+    ],
+    "checker": "raptor.UncheckedAllocProduct",
+    "args": [
+      "-m32",
+      "-Ilibtiff",
+      "-Ibuild-raptor/libtiff"
+    ],
+    "files": {
+      "libtiff/tif_getimage.c": [
+        {
+          "re": "_TIFFReadEncodedStripAndAllocBuffer\\(",
+          "count": 2
+        }
+      ]
+    }
+  },
+  {
     "name": "webp-huffman",
     "cve": "CVE-2023-4863",
     "repo": "https://github.com/webmproject/libwebp.git",
