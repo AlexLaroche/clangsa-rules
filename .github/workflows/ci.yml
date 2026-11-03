@@ -27,7 +27,8 @@ jobs:
 
       - name: Install LLVM/Clang ${{ matrix.llvm }}
         run: |
-          wget -q https://apt.llvm.org/llvm.sh
+          # apt.llvm.org is sometimes unreachable for a few minutes: retry.
+          curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 -o llvm.sh https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh ${{ matrix.llvm }}
           sudo apt-get install -y --no-install-recommends \
