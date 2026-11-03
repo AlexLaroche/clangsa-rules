@@ -151,6 +151,31 @@
     }
   },
   {
+    "name": "libmicrodns-rr-decode",
+    "cve": "CVE-2020-6072",
+    "repo": "https://github.com/videolabs/libmicrodns.git",
+    "vulnerable": "0103f40371cd6e5f034d1ea5674cd33316fef518",
+    "fixed": "89de67fe88ef2dc7110306dcc958eba625339438",
+    "fixed_note": "rr_decode: Handle errors in recursive calls (0.1.2)",
+    "setup": [],
+    "checker": "raptor.IgnoredStatusReturn",
+    "args": [
+      "-I.",
+      "-Iinclude",
+      "-Icompat"
+    ],
+    "files": {
+      "src/rr.c": {
+        "vulnerable": [
+          "^ +rr_decode\\(p, &m, root, &buf\\);"
+        ],
+        "fixed": [
+          "if \\(rr_decode\\(p, &m, root, &buf\\) == NULL\\)"
+        ]
+      }
+    }
+  },
+  {
     "name": "webp-huffman",
     "cve": "CVE-2023-4863",
     "repo": "https://github.com/webmproject/libwebp.git",
@@ -175,6 +200,33 @@
             "re": "BuildHuffmanTable\\(root_table->curr_segment->curr_table, root_bits,",
             "count": 2
           }
+        ]
+      }
+    }
+  },
+  {
+    "name": "mbedtls-lms-verify",
+    "cve": "CVE-2025-49600",
+    "repo": "https://github.com/Mbed-TLS/mbedtls.git",
+    "vulnerable": "caaffc1e7ec1a120821dea1f00a441e7b271c63d",
+    "fixed": "ae449bfca5e9a9a7b1cf1ec777755e33c79488e4",
+    "fixed_note": "Built-in lms driver: Check return values of Merkle node creation (3.6.4); built with MBEDTLS_LMS_PRIVATE so that the checked call sites in calculate_merkle_tree() are compiled",
+    "setup": [],
+    "checker": "raptor.IgnoredStatusReturn",
+    "args": [
+      "-Iinclude",
+      "-Ilibrary",
+      "-DMBEDTLS_LMS_PRIVATE"
+    ],
+    "files": {
+      "library/lms.c": {
+        "vulnerable": [
+          "^    create_merkle_leaf_value\\(",
+          "^        create_merkle_internal_value\\(&ctx->params, left_node, right_node,"
+        ],
+        "fixed": [
+          "ret = create_merkle_leaf_value\\($",
+          "ret = create_merkle_internal_value\\(&ctx->params, left_node, right_node,"
         ]
       }
     }

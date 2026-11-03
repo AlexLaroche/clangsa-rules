@@ -97,7 +97,9 @@ at both commits, so a case cannot pass because the code moved.
 | `openjpeg-image-create` | CVE-2016-9118 | `raptor.UncheckedAllocProduct` | OpenJPEG `83342f2` → `c22cbd8` (2.2.0) |
 | `libtiff-rgba-strip` | CVE-2019-17546 | `raptor.UncheckedAllocProduct` | libtiff `2218055` → `4bb584a` (4.1.0, 32-bit build) |
 | `libexif-save-entry` | CVE-2020-0093 | `raptor.CopyIgnoresSourceSize` | libexif `154189b` → `5ae5973` (0.6.22) |
+| `libmicrodns-rr-decode` | CVE-2020-6072 | `raptor.IgnoredStatusReturn` | libmicrodns `0103f40` → `89de67f` (0.1.2) |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
+| `mbedtls-lms-verify` | CVE-2025-49600 | `raptor.IgnoredStatusReturn` | Mbed TLS `caaffc1` → `ae449bf` (3.6.4, with `MBEDTLS_LMS_PRIVATE`) |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
 | `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
 | `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
@@ -191,7 +193,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.SuspiciousAssert**](src/checkers/SuspiciousAssert.cpp). Potentially invalid size check due to use of assertion macros.
 * [**raptor.InterestingApiCalls**](src/checkers/InterestingApiCalls.cpp). Calls to interesting and potentially insecure API functions.
 * [**raptor.UncheckedRetScanf**](src/checkers/UncheckedRetScanf.cpp). Unchecked return code of functions in the `scanf` family.
-* [**raptor.IgnoredStatusReturn**](src/checkers/IgnoredStatusReturn.cpp). Discarded result of a status function defined in the same file (every `return` is a constant such as `BROTLI_TRUE`/`BROTLI_FALSE`, or forwards another status), as in Broccoli2Shell (CVE-2026-111497, Brotli <= 1.0.9 `DecodeLiteralBlockSwitch`). `(void)f()` opts out.
+* [**raptor.IgnoredStatusReturn**](src/checkers/IgnoredStatusReturn.cpp). Discarded result of a function defined in the same file that reports success or failure: either every `return` is a constant such as `BROTLI_TRUE`/`BROTLI_FALSE` (or forwards another status), as in Broccoli2Shell (CVE-2026-111497, Brotli <= 1.0.9 `DecodeLiteralBlockSwitch`), or its integer or pointer result is checked at most of its other call sites (`ret = f(); if (ret)`, `if ((p = f()) == NULL)`), as in Mbed TLS `mbedtls_lms_verify` (CVE-2025-49600) and libmicrodns `rr_decode` (CVE-2020-6072). Not reported when the file discards the result more often than it checks it, for teardown functions (close, cleanup, free, final...), or for cleanup on a path that is already failing (`f(); break;`, `f(); return result;`). `(void)f()` opts out.
 * [**raptor.InsecureApiAto**](src/checkers/InsecureApiAto.cpp). Use of potentially insecure API functions `atoi`, `atol`, `atof`.
 * [**raptor.HighEntropyAssignment**](src/checkers/HighEntropyAssignment.cpp). Assignment of a high-entropy value that might be a secret.
 * [**raptor.ArgvEnvpAccess**](src/checkers/ArgvEnvpAccess.cpp). Command-line argument or environment variable access.
