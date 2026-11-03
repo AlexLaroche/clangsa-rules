@@ -92,6 +92,7 @@ at both commits, so a case cannot pass because the code moved.
 | Case | CVE | Checker | Vulnerable → fixed commit |
 |------|-----|---------|---------------------------|
 | `heartbleed` | CVE-2014-0160 | `raptor.TaintedLengthInCopy` | openssl `0d7717f` → `96db902` (1.0.1g) |
+| `openjpeg-image-create` | CVE-2016-9118 | `raptor.UncheckedAllocProduct` | OpenJPEG `83342f2` → `c22cbd8` (2.2.0) |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
 | `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
@@ -135,7 +136,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 #### integer overflows
 
 * [**raptor.IntegerWraparound**](src/checkers/IntegerWraparound.cpp). Potential integer wraparound errors.
-* [**raptor.UncheckedAllocProduct**](src/checkers/UncheckedAllocProduct.cpp). An allocation sized by a 32-bit product of two run-time factors (`stride * height`) that a loop bounded by one factor then fills, with no overflow guard (`a > INT_MAX / b`, `*_mul_overflow`, `av_size_mult`...): when the product wraps, the loop writes past the small buffer, as in FFmpeg's raw RGB reshuffle (CVE-2026-70628, CVE-2026-70632).
+* [**raptor.UncheckedAllocProduct**](src/checkers/UncheckedAllocProduct.cpp). An allocation sized by a 32-bit product of two run-time factors (`stride * height`, `w * h`), written in the call or computed into a local first, with no overflow guard on the factors (`a > INT_MAX / b`, `*_mul_overflow`, `av_size_mult`, both factors bounded by constants): when the product wraps, whatever fills the buffer writes past it. Products computed in `size_t` and constant factors do not match. As in FFmpeg's raw RGB reshuffle (CVE-2026-70628, CVE-2026-70632) and OpenJPEG's `opj_image_create` (CVE-2016-9118).
 * [**raptor.UnsafeStrlen**](src/checkers/UnsafeStrlen.cpp). Casting the return value of `strlen` to short might be dangerous.
 * [**raptor.IntegerTruncation**](src/checkers/IntegerTruncation.cpp). Potential integer truncation errors.
 * [**raptor.SignedUnsignedConversion**](src/checkers/SignedUnsignedConversion.cpp). Potential signed/unsigned conversion errors.
