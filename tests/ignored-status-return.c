@@ -134,3 +134,127 @@ void Recurse(void) {
   // ok: raptor-ignored-status-return
   Ping(3);
 }
+
+// Result checked by the other callers: a deviant discard.
+// CVE-2025-49600 (Mbed TLS < 3.6.4, library/lms.c): mbedtls_lms_verify()
+// ignored create_merkle_leaf_value(), which only forwards a PSA status, so an
+// injected hash failure let a forged signature verify.
+typedef int psa_status_t;
+int psa_to_mbedtls(psa_status_t status);
+psa_status_t psa_hash(const unsigned char *in, unsigned char *out);
+
+static int create_leaf(const unsigned char *key, unsigned char *out) {
+  psa_status_t status = psa_hash(key, out);
+  return psa_to_mbedtls(status);
+}
+
+int lms_verify(const unsigned char *key, unsigned char *root) {
+  // ruleid: raptor-ignored-status-return
+  create_leaf(key, root);
+  return root[0] == 0 ? 0 : -1;
+}
+
+int lms_build(const unsigned char *key, unsigned char *tree) {
+  int ret;
+  // ok: raptor-ignored-status-return
+  ret = create_leaf(key, tree);
+  if (ret != 0)
+    return ret;
+  return 0;
+}
+
+// A pointer result checked against NULL elsewhere.
+// CVE-2020-6072 (libmicrodns 0.1.0, src/rr.c): the recursive rr_decode()
+// call ignored a NULL (error) result and went on with a freed name.
+static const unsigned char *rr_decode(const unsigned char *ptr, size_t *n, char **ss);
+
+static const unsigned char *rr_read_srv(const unsigned char *ptr, size_t *n, char **target) {
+  // ok: raptor-ignored-status-return
+  if ((ptr = rr_decode(ptr, n, target)) == NULL)
+    return NULL;
+  return ptr;
+}
+
+static const unsigned char *rr_read_ptr(const unsigned char *ptr, size_t *n, char **domain) {
+  // ok: raptor-ignored-status-return
+  if ((ptr = rr_decode(ptr, n, domain)) == NULL)
+    return NULL;
+  return ptr;
+}
+
+static const unsigned char *rr_decode(const unsigned char *ptr, size_t *n, char **ss) {
+  char *buf = NULL;
+  size_t m = 0;
+  if (*n == 0)
+    return NULL;
+  if (ptr[0] & 0xc0) {
+    // ruleid: raptor-ignored-status-return
+    rr_decode(ptr + 1, &m, &buf);
+    *ss = buf;
+  }
+  return ptr + 1;
+}
+
+// Mostly discarded: discarding is the norm for this function.
+int log_line(const char *msg);
+static int emit(const char *msg) { return log_line(msg); }
+void report_all(void) {
+  // ok: raptor-ignored-status-return
+  emit("a");
+  // ok: raptor-ignored-status-return
+  emit("b");
+  // ok: raptor-ignored-status-return
+  emit("c");
+  if (emit("d") < 0)
+    return;
+}
+
+// Used, but never checked, elsewhere (a count passed on).
+static int count_items(const int *v) { return v[0] + v[1]; }
+int total(const int *v);
+int sum_twice(const int *v) {
+  // ok: raptor-ignored-status-return
+  count_items(v);
+  return total(v) + count_items(v);
+}
+
+// A status function the file never checks (libtiff tiffcrop dump_byte):
+// discarding is the norm here.
+static int dump_byte(int fd, unsigned char b) {
+  if (fd < 0)
+    return 1;
+  return b ? 0 : 2;
+}
+void dump_all(int fd, const unsigned char *p) {
+  // ok: raptor-ignored-status-return
+  dump_byte(fd, p[0]);
+  // ok: raptor-ignored-status-return
+  dump_byte(fd, p[1]);
+}
+
+// Ignored on a path that is already failing (curl content_encoding.c).
+static int machine(State *s, int ev) { return ev > 0 ? 0 : -1; }
+int on_data(State *s, int result) {
+  if (machine(s, 1))
+    return -1;
+  if (result) {
+    // ok: raptor-ignored-status-return
+    machine(s, -1);
+    return result;
+  }
+  // ruleid: raptor-ignored-status-return
+  machine(s, 2);
+  return 0;
+}
+
+// Teardown whose status nobody can act on (libarchive xar _checksum_final).
+static int checksum_final(State *s) { return s->num_block_types[0] ? 0 : -1; }
+int finish(State *s) {
+  if (checksum_final(s) != 0)
+    return -1;
+  return 0;
+}
+void cleanup(State *s) {
+  // ok: raptor-ignored-status-return
+  checksum_final(s);
+}
