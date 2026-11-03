@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: clang ${{ matrix.llvm }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Latest LLVM release (23.1.x as of 2026-11). Bump when a new major ships.
+        llvm: [23]
+    env:
+      LLVM_PREFIX: /usr/lib/llvm-${{ matrix.llvm }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM/Clang ${{ matrix.llvm }}
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh ${{ matrix.llvm }}
+          sudo apt-get install -y --no-install-recommends \
+            libclang-${{ matrix.llvm }}-dev llvm-${{ matrix.llvm }}-dev \
+            ninja-build uuid-dev
+          echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
+
+      - name: Show toolchain
+        run: |
+          which clang clang++
+          clang --version
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DClang_DIR="$LLVM_PREFIX/lib/cmake/clang" \
+            -DLLVM_DIR="$LLVM_PREFIX/lib/cmake/llvm"
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: Test
+        run: python3 tools/run_tests.py -v

@@ -14,8 +14,8 @@ configuration you compile is analysed, and macros are seen expanded.
 
 ## Build
 
-Requires clang 18 with its development files (`libclang-18-dev`,
-`clang-tools-18`).
+Requires clang 18 or later (tested with 18 and 23) with its development files
+(`libclang-<N>-dev`, `llvm-<N>-dev`, `clang-tools-<N>`).
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -23,7 +23,14 @@ cmake --build build -j
 ```
 
 This produces `build/RaptorCheckers.so`. A subset can be built with
-`-DRAPTOR_ONLY="DoubleFree;UseAfterFree"`.
+`-DRAPTOR_ONLY="DoubleFree;UseAfterFree"`. CMake looks for clang 18 by default;
+for another version pass
+`-DClang_DIR=/usr/lib/llvm-<N>/lib/cmake/clang -DLLVM_DIR=/usr/lib/llvm-<N>/lib/cmake/llvm`,
+and load the plugin with the same clang it was built against (the plugin is
+tied to one clang major version).
+
+CI (`.github/workflows/ci.yml`) builds and runs the tests with the latest LLVM
+release from apt.llvm.org.
 
 ## Use
 
