@@ -44,7 +44,10 @@ def annotations(path):
 
 def analyze(plugin, path, checker, extra=()):
     cc = 'clang++' if path.suffix in ('.cpp', '.cc') else 'clang'
-    cmd = [cc, '--analyze', '-w', '-Xclang', '-load', '-Xclang', str(plugin),
+    # The semgrep fixtures pass e.g. wchar_t* for char*; clang >= 23 makes
+    # that an error by default.
+    cmd = [cc, '--analyze', '-w', '-Wno-error=incompatible-pointer-types',
+           '-Xclang', '-load', '-Xclang', str(plugin),
            '-Xclang', f'-analyzer-checker={checker}',
            '-Xclang', '-analyzer-output=text', '-o', '/dev/null', *extra, str(path)]
     p = subprocess.run(cmd, capture_output=True, text=True)

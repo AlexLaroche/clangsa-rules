@@ -34,6 +34,33 @@ REGISTER_MAP_WITH_PROGRAMSTATE(RaptorDecodedLen, SymbolRef, const Stmt *)
 REGISTER_SET_WITH_PROGRAMSTATE(RaptorCheckedLen, SymbolRef)
 
 namespace {
+// Clang API drift, detected by feature rather than version:
+// LocationContext was renamed StackFrame (CheckerContext::getLocationContext
+// is gone in clang 23), and conjureSymbolVal takes the current CFG element
+// instead of an Expr (CheckerContext::getCFGElementRef, clang 21+).
+template <class Ctx>
+auto locationContext(const Ctx &C, int) -> decltype(C.getLocationContext()) {
+  return C.getLocationContext();
+}
+template <class Ctx> auto locationContext(const Ctx &C, long) {
+  return C.getStackFrame();
+}
+template <class Ctx> auto locationContext(const Ctx &C) {
+  return locationContext(C, 0);
+}
+
+template <class Ctx, class LC>
+auto conjure(Ctx &C, const Expr *E, LC L, int)
+    -> decltype(C.getCFGElementRef(), SVal()) {
+  return C.getSValBuilder().conjureSymbolVal(
+      nullptr, C.getCFGElementRef(), L, E->getType(), C.blockCount());
+}
+template <class Ctx, class LC>
+SVal conjure(Ctx &C, const Expr *E, LC L, long) {
+  return C.getSValBuilder().conjureSymbolVal(nullptr, E, L, E->getType(),
+                                             C.blockCount());
+}
+
 const Expr *ign(const Expr *E) { return E->IgnoreParenCasts(); }
 
 // *p, p[i], *p++: a single character read from memory
@@ -111,14 +138,13 @@ class TaintedLengthInCopyChecker
   // decoded length.
   void taint(const Expr *E, CheckerContext &C) const {
     ProgramStateRef State = C.getState();
-    const LocationContext *LCtx = C.getLocationContext();
+    const auto *LCtx = locationContext(C);
     SVal V = C.getSVal(E);
     SymbolRef Sym = V.getAsSymbol(/*IncludeBaseRegions=*/false);
     if (!Sym) {
       if (!V.isUnknown())
         return; // a concrete value
-      V = C.getSValBuilder().conjureSymbolVal(nullptr, E, LCtx, E->getType(),
-                                             C.blockCount());
+      V = conjure(C, E, LCtx, 0);
       State = State->BindExpr(E, LCtx, V);
       Sym = V.getAsSymbol();
       if (!Sym)
@@ -258,7 +284,7 @@ public:
     Rep->markInteresting(Sym);
     Rep->addNote("Length decoded here",
                  PathDiagnosticLocation::createBegin(
-                     Src, C.getSourceManager(), C.getLocationContext()));
+                     Src, C.getSourceManager(), locationContext(C)));
     C.emitReport(std::move(Rep));
   }
 };
