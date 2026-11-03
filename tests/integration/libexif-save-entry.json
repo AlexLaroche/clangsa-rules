@@ -1,0 +1,29 @@
+{
+  "name": "libexif-save-entry",
+  "cve": "CVE-2020-0093",
+  "repo": "https://github.com/libexif/libexif.git",
+  "vulnerable": "154189b77491191e00e1204083ab51c4ad5a60ff",
+  "fixed": "5ae5973bed1947f4d447dc80b76d5cefadd90133",
+  "fixed_note": "libexif: Fix read buffer overflow (CVE-2020-0093) (0.6.22)",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "printf '#include <stdint.h>\\n' > libexif/_stdint.h && : > config.h"
+    ]
+  ],
+  "checker": "raptor.CopyIgnoresSourceSize",
+  "args": [
+    "-I."
+  ],
+  "files": {
+    "libexif/exif-data.c": {
+      "vulnerable": [
+        "memcpy \\(\\*d \\+ 6 \\+ doff, e->data, s\\);"
+      ],
+      "fixed": [
+        "memcpy \\(\\*d \\+ 6 \\+ doff, e->data, len\\);"
+      ]
+    }
+  }
+}

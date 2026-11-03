@@ -1,0 +1,29 @@
+{
+  "name": "heartbleed-source-size",
+  "cve": "CVE-2014-0160",
+  "repo": "https://github.com/openssl/openssl.git",
+  "vulnerable": "0d7717fc9c83dafab8153cbd5e2180e6e04cc802",
+  "fixed": "96db9023b881d7cd9f379b0c154650d6c108e9a3",
+  "fixed_note": "Add heartbeat extension bounds check (1.0.1g); same commits as heartbleed, second rule",
+  "setup": [
+    [
+      "./config",
+      "no-asm"
+    ]
+  ],
+  "checker": "raptor.CopyIgnoresSourceSize",
+  "args": [
+    "-I.",
+    "-Iinclude",
+    "-Icrypto",
+    "-DOPENSSL_NO_KRB5"
+  ],
+  "files": {
+    "ssl/t1_lib.c": [
+      "memcpy\\(bp, pl, payload\\);"
+    ],
+    "ssl/d1_both.c": [
+      "memcpy\\(bp, pl, payload\\);"
+    ]
+  }
+}

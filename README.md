@@ -79,7 +79,7 @@ Annotation changes from the originals:
 
 ### Integration tests
 
-`tests/integration/cases.json` lists real vulnerabilities, each with the
+`tests/integration/` holds one file per real vulnerability (`<name>.json`), each with the
 upstream commit that fixed it and that commit's parent.
 `tools/run_integration.py` fetches both commits (shallow, by SHA, cached in
 `build/integration-src`) and analyses the affected files:

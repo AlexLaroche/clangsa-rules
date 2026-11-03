@@ -1,0 +1,21 @@
+{
+  "name": "freeimage-iff-pbm-rle",
+  "cve": "CVE-2026-118752",
+  "repo": "https://github.com/danoli3/freeimage.git",
+  "vulnerable": "5af27d055ad31fbf99631a55a5de19b3820a4790",
+  "fixed": "38fbe82eaa4f6e1fb9f7b059028a273b09ca2e41",
+  "fixed_note": "fix heap overflow in IFF PBM RLE decompression (3.19.22)",
+  "setup": [],
+  "checker": "raptor.UncheckedCursorWrite",
+  "args": [
+    "-ISource"
+  ],
+  "files": {
+    "Source/FreeImage/PluginIFF.cpp": [
+      {
+        "re": "^\\s*bits\\[number_of_bytes_written\\+\\+\\] \\+= byte;",
+        "count": 2
+      }
+    ]
+  }
+}

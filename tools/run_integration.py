@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Integration tests: real CVEs in real code, before and after the fix.
 
-Each case in tests/integration/cases.json names a repository, the commit
-that fixed a known vulnerability and that commit's parent, a checker, and
-for each source file the regexes of the vulnerable lines (the sinks). The
+Each case, one file per case in tests/integration/<name>.json, names a
+repository, the commit that fixed a known vulnerability and that commit's
+parent, a checker, and for each source file the regexes of the vulnerable lines (the sinks). The
 sources are fetched at both commits (shallow, by SHA) and analysed with the
 plugin:
 
@@ -119,17 +119,32 @@ def run_case(case, plugin, cache, verbose):
     return ok
 
 
+def load_cases(directory):
+    """The cases of directory/*.json, oldest CVE first. Each file holds one
+    case whose name is the file's name."""
+    cases = []
+    for p in sorted(directory.glob('*.json')):
+        case = json.loads(p.read_text())
+        if case.get('name') != p.stem:
+            sys.exit(f'{p}: case name {case.get("name")!r} does not match the file name')
+        cases.append(case)
+    if not cases:
+        sys.exit(f'no cases in {directory}')
+    return sorted(cases, key=lambda c: tuple(int(x) for x in re.findall(r'\d+', c['cve'])))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('cases', nargs='*', help='case names (default: all)')
     ap.add_argument('--plugin', default=str(ROOT / 'build' / 'RaptorCheckers.so'))
-    ap.add_argument('--cases-file', default=str(ROOT / 'tests' / 'integration' / 'cases.json'))
+    ap.add_argument('--cases-dir', default=str(ROOT / 'tests' / 'integration'),
+                    help='directory of <name>.json case files')
     ap.add_argument('--cache', default=str(ROOT / 'build' / 'integration-src'),
                     help='where sources are checked out (reused between runs)')
     ap.add_argument('-v', '--verbose', action='store_true')
     a = ap.parse_args()
 
-    cases = json.load(open(a.cases_file))
+    cases = load_cases(pathlib.Path(a.cases_dir))
     if a.cases:
         unknown = set(a.cases) - {c['name'] for c in cases}
         if unknown:

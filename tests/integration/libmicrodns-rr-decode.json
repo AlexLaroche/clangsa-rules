@@ -1,0 +1,25 @@
+{
+  "name": "libmicrodns-rr-decode",
+  "cve": "CVE-2020-6072",
+  "repo": "https://github.com/videolabs/libmicrodns.git",
+  "vulnerable": "0103f40371cd6e5f034d1ea5674cd33316fef518",
+  "fixed": "89de67fe88ef2dc7110306dcc958eba625339438",
+  "fixed_note": "rr_decode: Handle errors in recursive calls (0.1.2)",
+  "setup": [],
+  "checker": "raptor.IgnoredStatusReturn",
+  "args": [
+    "-I.",
+    "-Iinclude",
+    "-Icompat"
+  ],
+  "files": {
+    "src/rr.c": {
+      "vulnerable": [
+        "^ +rr_decode\\(p, &m, root, &buf\\);"
+      ],
+      "fixed": [
+        "if \\(rr_decode\\(p, &m, root, &buf\\) == NULL\\)"
+      ]
+    }
+  }
+}

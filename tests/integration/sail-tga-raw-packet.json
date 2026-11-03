@@ -1,0 +1,33 @@
+{
+  "name": "sail-tga-raw-packet",
+  "cve": "CVE-2026-40494",
+  "repo": "https://github.com/happyseafox/sail.git",
+  "vulnerable": "c930284445ea3ff94451ccd7a57c999eca3bc979",
+  "fixed": "45d48d1f2e8e0d73e80bc1fd5310cb57f4547302",
+  "fixed_note": "TGA: Fixed buffer overflow reported in GHSA-cp2j-rwh4-r46f",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-raptor",
+      "-DSAIL_ONLY_CODECS=tga",
+      "-DSAIL_BUILD_APPS=OFF",
+      "-DSAIL_BUILD_EXAMPLES=OFF",
+      "-DSAIL_BUILD_TESTS=OFF"
+    ]
+  ],
+  "checker": "raptor.UncheckedCursorWrite",
+  "args": [
+    "-DSAIL_BUILD",
+    "-D_POSIX_C_SOURCE=200112L",
+    "-Isrc",
+    "-Ibuild-raptor/include"
+  ],
+  "files": {
+    "src/sail-codecs/tga/tga.c": [
+      "SAIL_TRY\\(tga_state->io->strict_read\\(tga_state->io->stream, pixels, pixel_size\\)\\);"
+    ]
+  }
+}

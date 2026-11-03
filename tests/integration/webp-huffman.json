@@ -1,0 +1,29 @@
+{
+  "name": "webp-huffman",
+  "cve": "CVE-2023-4863",
+  "repo": "https://github.com/webmproject/libwebp.git",
+  "vulnerable": "7ba44f80f3b94fc0138db159afea770ef06532a0",
+  "fixed": "902bc9190331343b2017211debcec8d2ab87e17a",
+  "fixed_note": "Fix OOB write in BuildHuffmanTable. (released in 1.3.2)",
+  "setup": [],
+  "checker": "raptor.UncheckedCursorWrite",
+  "args": [
+    "-I."
+  ],
+  "files": {
+    "src/utils/huffman_utils.c": {
+      "vulnerable": [
+        {
+          "re": "total_size = BuildHuffmanTable\\(root_table, root_bits,",
+          "count": 2
+        }
+      ],
+      "fixed": [
+        {
+          "re": "BuildHuffmanTable\\(root_table->curr_segment->curr_table, root_bits,",
+          "count": 2
+        }
+      ]
+    }
+  }
+}

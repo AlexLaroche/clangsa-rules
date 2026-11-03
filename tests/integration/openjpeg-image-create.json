@@ -1,0 +1,32 @@
+{
+  "name": "openjpeg-image-create",
+  "cve": "CVE-2016-9118",
+  "repo": "https://github.com/uclouvain/openjpeg.git",
+  "vulnerable": "83342f2aafcab4599b49f780e35fd249e8402b61",
+  "fixed": "c22cbd8bdf8ff2ae372f94391a4be2d322b36b41",
+  "fixed_note": "Avoid heap buffer overflow in pnmtoimage and unsigned integer overflow in opj_image_create() (2.2.0)",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-raptor"
+    ]
+  ],
+  "checker": "raptor.UncheckedAllocProduct",
+  "args": [
+    "-Isrc/lib/openjp2",
+    "-Ibuild-raptor/src/lib/openjp2"
+  ],
+  "files": {
+    "src/lib/openjp2/image.c": {
+      "vulnerable": [
+        "comp->data = \\(OPJ_INT32\\*\\) opj_calloc\\(comp->w \\* comp->h, sizeof\\(OPJ_INT32\\)\\);"
+      ],
+      "fixed": [
+        "comp->data = \\(OPJ_INT32\\*\\) opj_calloc\\(\\(OPJ_SIZE_T\\)comp->w \\* comp->h,"
+      ]
+    }
+  }
+}

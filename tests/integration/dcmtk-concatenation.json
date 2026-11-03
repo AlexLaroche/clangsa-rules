@@ -1,0 +1,35 @@
+{
+  "name": "dcmtk-concatenation",
+  "cve": "CVE-2026-97059",
+  "repo": "https://github.com/DCMTK/dcmtk.git",
+  "vulnerable": "30cc1534f26986def8501c94b88833514a6317dc",
+  "fixed": "18379d5b8d234977cc30644e9e70d76d89c87285",
+  "fixed_note": "Fixed heap over-read in ConcatenationLoader. (after DCMTK 3.7.0)",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-raptor"
+    ]
+  ],
+  "checker": "raptor.UncheckedSourceOffset",
+  "args": [
+    "-Ibuild-raptor/config/include",
+    "-Iconfig/include",
+    "-Iofstd/include",
+    "-Ioflog/include",
+    "-Idcmdata/include",
+    "-Idcmiod/include",
+    "-Idcmfg/include"
+  ],
+  "files": {
+    "dcmfg/libsrc/concatenationloader.cc": [
+      {
+        "re": "memcpy\\(frame->getPixelData\\(\\), ptr, frame->getLengthInBytes\\(\\)\\);",
+        "count": 2
+      }
+    ]
+  }
+}
