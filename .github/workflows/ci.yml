@@ -5,8 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
+# No GITHUB_TOKEN permissions: the repository is public, so checkout needs
+# none, and nothing here writes to GitHub.
+permissions: {}
 
 jobs:
   build-and-test:
@@ -21,6 +22,8 @@ jobs:
       LLVM_PREFIX: /usr/lib/llvm-${{ matrix.llvm }}
     steps:
       - uses: actions/checkout@v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install LLVM/Clang ${{ matrix.llvm }}
         run: |
