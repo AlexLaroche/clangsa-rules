@@ -1,0 +1,19 @@
+{
+  "name": "open-isns-attr-decode-free",
+  "cve": "CVE-2026-55995",
+  "repo": "https://github.com/open-iscsi/open-isns",
+  "vulnerable": "296d533bd52ad6b901cd7b8464ebab526aa7a975",
+  "fixed": "56718d4e9d1a4f51c30697b5c0534144bb41c9bb",
+  "fixed_note": "Fix issue in error path causing double-free (value->iv_string / iv_opaque.ptr = NULL after isns_free)",
+  "checker": "raptor.FreedFieldNotCleared",
+  "args": [
+    "-I.",
+    "-Iinclude"
+  ],
+  "files": {
+    "attrs.c": [
+      "^\\t\\tisns_free\\(value->iv_string\\);",
+      "^\\t\\tisns_free\\(value->iv_opaque\\.ptr\\);"
+    ]
+  }
+}

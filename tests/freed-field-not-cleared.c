@@ -2,6 +2,7 @@
 // filled in earlier (`obj->text`) and returns, but leaves the pointer in the
 // object, which outlives the call. Whoever cleans the object up later frees
 // it again, or reads it (CWE-415, CWE-416).
+// CVE-2026-55995 (open-isns isns_attr_type_string_decode) has the same shape.
 // Modelled on CVE-2026-88812 (X.Org xserver, _CheckSetDoodad: the doodad is
 // already attached to the geometry, `_GetCountedString(&wire, client,
 // &doodad->text.text)`, and when the font string fails `free(doodad->text.text);

@@ -26,7 +26,8 @@
 // dispatching on the tag leaves the field alone (wolfSSL
 // `attr->value->value.asn1_string` with `attr->value->type` set on success).
 //
-// CVE-2026-88812 (X.Org xserver _CheckSetDoodad).
+// CVE-2026-88812 (X.Org xserver _CheckSetDoodad), CVE-2026-55995 (open-isns
+// isns_attr_type_string_decode / _opaque_decode).
 #include "Common.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
