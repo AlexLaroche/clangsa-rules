@@ -1,0 +1,34 @@
+{
+  "name": "libssh2-aes-gcm-assert-bound",
+  "cve": "CVE-2026-66033",
+  "repo": "https://github.com/libssh2/libssh2.git",
+  "vulnerable": "74a09eb26ed8fef7941402d8cf6bd6c9d2b954eb",
+  "fixed": "a2ed82d40964bbc0d64cd717aa0a5a892117d2e6",
+  "fixed_note": "openssl: fix potential OOB read/write with AES-GCM in ssh2_cipher_crypt() (GHSA-c4f7-cvfc-33j7)",
+  "checker": "raptor.AssertOnlyBound",
+  "args": [
+    "-Iinclude",
+    "-Isrc",
+    "-DLIBSSH2_OPENSSL",
+    "-DHAVE_UNISTD_H",
+    "-DHAVE_INTTYPES_H",
+    "-DHAVE_STDLIB_H",
+    "-DHAVE_SYS_SELECT_H",
+    "-DHAVE_SYS_UIO_H",
+    "-DHAVE_SYS_SOCKET_H",
+    "-DHAVE_SYS_TIME_H",
+    "-DHAVE_O_NONBLOCK"
+  ],
+  "files": {
+    "src/openssl.c": {
+      "vulnerable": [
+        "assert\\(blocksize <= sizeof\\(buf\\)\\);",
+        "assert\\(cryptlen >= 0\\);"
+      ],
+      "fixed": [
+        "if\\(blocksize > sizeof\\(buf\\) \\|\\|",
+        "blocksize < \\(size_t\\)\\(aadlen \\+ authenticationtag\\)\\)"
+      ]
+    }
+  }
+}

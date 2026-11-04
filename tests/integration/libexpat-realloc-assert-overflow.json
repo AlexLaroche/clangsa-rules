@@ -1,0 +1,36 @@
+{
+  "name": "libexpat-realloc-assert-overflow",
+  "cve": "CVE-2026-102633",
+  "repo": "https://github.com/libexpat/libexpat.git",
+  "vulnerable": "cccede366ffceeadc0ff879a14e41269f6d90e1d",
+  "fixed": "209801d7fbaf07ab74bae8cb32dd2ab9e5846118",
+  "fixed_note": "Replace assert with runtime overflow check in expat_realloc (#1392)",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      "expat",
+      "-B",
+      "build-raptor",
+      "-DEXPAT_BUILD_TESTS=OFF",
+      "-DEXPAT_BUILD_TOOLS=OFF",
+      "-DEXPAT_BUILD_EXAMPLES=OFF",
+      "-DEXPAT_BUILD_DOCS=OFF"
+    ]
+  ],
+  "checker": "raptor.AssertOnlyBound",
+  "args": [
+    "-Iexpat/lib",
+    "-Ibuild-raptor"
+  ],
+  "files": {
+    "expat/lib/xmlparse.c": {
+      "vulnerable": [
+        "assert\\(SIZE_MAX - sizeof\\(size_t\\) - EXPAT_MALLOC_PADDING >= size\\);"
+      ],
+      "fixed": [
+        "if \\(size > SIZE_MAX - sizeof\\(size_t\\) - EXPAT_MALLOC_PADDING\\) \\{"
+      ]
+    }
+  }
+}
