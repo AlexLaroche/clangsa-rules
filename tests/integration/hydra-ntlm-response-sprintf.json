@@ -1,0 +1,38 @@
+{
+  "name": "hydra-ntlm-response-sprintf",
+  "cve": "CVE-2026-56766",
+  "repo": "https://github.com/vanhauser-thc/thc-hydra.git",
+  "vulnerable": "2d7330f7f7e6f9fe320104868d1a7e5efb31d71e",
+  "fixed": "9cc84c20e75f5fef6bb1790bb9ada2afad2204e2",
+  "fixed_note": "ntml encoding vuln fixes",
+  "checker": "raptor.UnboundedCopyToStackArray",
+  "args": [
+    "-I."
+  ],
+  "files": {
+    "hydra-imap.c": [
+      {
+        "re": "sprintf\\(buffer, \"%s\\\\r\\\\n\", buf1\\);",
+        "count": 2
+      }
+    ],
+    "hydra-pop3.c": [
+      {
+        "re": "sprintf\\(buffer, \"%s\\\\r\\\\n\", buf1\\);",
+        "count": 2
+      }
+    ],
+    "hydra-nntp.c": [
+      {
+        "re": "sprintf\\(buffer, \"(AUTHINFO SASL NTLM )?%s\\\\r\\\\n\", \\(char \\*\\)buf1\\);",
+        "count": 2
+      }
+    ],
+    "hydra-smtp.c": [
+      {
+        "re": "sprintf\\(buffer, \"(AUTH NTLM )?%s\\\\r\\\\n\", buf1\\);",
+        "count": 2
+      }
+    ]
+  }
+}
