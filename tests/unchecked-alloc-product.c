@@ -64,6 +64,17 @@ int *grid(int rows, int cols) {
   return g;
 }
 
+// The product spans several lines (GEGL rgbe_read_pixels, CVE-2026-18300:
+// `g_new (gfloat, file->header.x_axis.size *\n file->header.y_axis.size *
+// RGBE_NUM_RGBE)`): the report stays on one line.
+typedef struct { unsigned short width, height; } Header;
+float *pixels(const Header *h) {
+  // ruleid: raptor-unchecked-alloc-product
+  return malloc(h->width *
+                h->height *
+                3 * sizeof(float));
+}
+
 // Checked with an overflow helper.
 unsigned char *rows_checked(int rows, int stride, const unsigned char *src) {
   size_t total;

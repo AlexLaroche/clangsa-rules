@@ -7,7 +7,7 @@ void raptor::reportAt(BugReporter &BR, const CheckerBase *C, StringRef Name,
                       StringRef Msg, const Stmt *S, AnalysisDeclContext *ADC) {
   PathDiagnosticLocation L =
       PathDiagnosticLocation::createBegin(S, BR.getSourceManager(), ADC);
-  BR.EmitBasicReport(ADC->getDecl(), C, Name, Category, Msg, L,
+  BR.EmitBasicReport(ADC->getDecl(), C, Name, Category, oneLine(Msg), L,
                      S->getSourceRange());
 }
 
@@ -15,7 +15,23 @@ void raptor::reportAt(BugReporter &BR, const CheckerBase *C, StringRef Name,
                       StringRef Msg, const Decl *D) {
   PathDiagnosticLocation L =
       PathDiagnosticLocation::createBegin(D, BR.getSourceManager());
-  BR.EmitBasicReport(D, C, Name, Category, Msg, L, D->getSourceRange());
+  BR.EmitBasicReport(D, C, Name, Category, oneLine(Msg), L, D->getSourceRange());
+}
+
+std::string raptor::oneLine(StringRef S) {
+  std::string R;
+  bool Space = false;
+  for (char C : S) {
+    if (C == ' ' || C == '\t' || C == '\n' || C == '\r' || C == '\f' || C == '\v') {
+      Space = true;
+      continue;
+    }
+    if (Space && !R.empty())
+      R += ' ';
+    Space = false;
+    R += C;
+  }
+  return R;
 }
 
 StringRef raptor::calleeName(const CallExpr *CE) {

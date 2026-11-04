@@ -20,7 +20,8 @@
 //   - both factors compared with a constant (`w > 4096 || h > 4096`).
 //
 // CVE-2026-70628 / CVE-2026-70632 (FFmpeg < 9.0, libavformat/rawutils.c),
-// CVE-2016-9118 (OpenJPEG < 2.2.0, opj_image_create).
+// CVE-2016-9118 (OpenJPEG < 2.2.0, opj_image_create), CVE-2026-18300 (GEGL
+// rgbe_read_scanlines, g_new with a product of header dimensions).
 #include "Common.h"
 #include "MemFlow.h"
 #include "Registry.h"

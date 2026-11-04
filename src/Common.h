@@ -16,6 +16,11 @@ namespace raptor {
 
 inline constexpr const char *Category = "Security (raptor)";
 
+// S with every run of whitespace (newlines included) turned into one space:
+// a diagnostic is one line, also when it quotes source text that spans
+// several.
+std::string oneLine(llvm::StringRef S);
+
 // Report Msg at node S for checker C (used by AST-based checkers).
 void reportAt(clang::ento::BugReporter &BR, const clang::ento::CheckerBase *C,
               llvm::StringRef Name, llvm::StringRef Msg, const clang::Stmt *S,

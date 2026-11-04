@@ -1,0 +1,25 @@
+{
+  "name": "gegl-rgbe-pixels-alloc",
+  "cve": "CVE-2026-18300",
+  "repo": "https://gitlab.gnome.org/GNOME/gegl.git",
+  "vulnerable": "cd4afd46154afdf98e119a11949edac03b8a4c57",
+  "fixed": "d3d262008299341c5b032b354021632ceadb2799",
+  "fixed_note": "libs/rgbe: fix >200kb report from ZDI (x_axis/y_axis size bounded by RGBE_MAX_SCANLINE_WIDTH before g_new)",
+  "checker": "raptor.UncheckedAllocProduct",
+  "setup": [
+    ["mkdir", "-p", "build-raptor/stub"],
+    ["touch", "build-raptor/stub/config.h"]
+  ],
+  "args": [
+    "-Ibuild-raptor/stub",
+    "-Ilibs/rgbe",
+    "-I/usr/include/glib-2.0",
+    "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include"
+  ],
+  "files": {
+    "libs/rgbe/rgbe.c": {
+      "vulnerable": ["pixels = pixel_cursor = g_new \\(gfloat, file->header\\.x_axis\\.size \\*$"],
+      "fixed": []
+    }
+  }
+}
