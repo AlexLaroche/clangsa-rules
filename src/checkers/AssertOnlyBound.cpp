@@ -18,7 +18,11 @@
 // pointer's size_t), used as an array index, added to or subtracted from a
 // pointer, or implicitly converted to a narrower integer type (`*d_len = s_len;`
 // into a uint16_t after `assert(s_len < UINT16_MAX)`), where it is truncated;
-// an explicit cast (`(int)(n & MASK)`) is a deliberate truncation.
+// an explicit cast (`(int)(n & MASK)`) is a deliberate truncation. When the
+// assertion only bounds the value by a type's limit (`x <= UINT32_MAX`, with
+// at most a sign test besides), only that implicit narrowing counts: the
+// limit says nothing about a buffer (FreeRDP `WINPR_ASSERT(timeout <=
+// UINT32_MAX); ... (UINT32)timeout`).
 // Not reported: a value also compared, outside assertions, in the condition
 // of an if, a loop or a ?: against something other than a constant <= 1
 // (`if (n > max)`, `i < n`, a clamp `n > MAX ? MAX : n`); a comparison that
@@ -62,6 +66,7 @@ bool isReleaseAssert(StringRef Name) {
 struct Assertion {
   SourceLocation Begin, End;           // expansion range in the file
   std::vector<std::string> Names;      // identifiers in the arguments
+  std::set<std::string> FitOnly;       // names bounded only by a type's limit
 };
 
 bool isOneOfType(StringRef N);
@@ -114,11 +119,41 @@ bool isOneOfType(StringRef N) {
          N.ends_with("_t");
 }
 
+// A constant side that is only a type's limit (`UINT32_MAX`, `(INT_MAX)`):
+// the assertion says the value fits that type, not that it fits a buffer.
+bool typeLimit(const std::vector<Token> &T) {
+  static const llvm::Regex RE("^(U?INT(8|16|32|64|PTR|MAX)?|U?LONG|U?LLONG|U?SHRT|U?CHAR|"
+                              "SCHAR|S?SIZE|PTRDIFF|WCHAR)_MAX$");
+  int Ids = 0;
+  bool Limit = false;
+  for (const Token &K : T) {
+    if (K.isOneOf(tok::l_paren, tok::r_paren))
+      continue;
+    if (!K.is(tok::raw_identifier))
+      return false;
+    StringRef N = K.getRawIdentifier();
+    if (isOneOfType(N))
+      continue; // a cast
+    ++Ids;
+    Limit = RE.match(N);
+  }
+  return Ids == 1 && Limit;
+}
+
+// A constant side that is 0: a sign test.
+bool zero(const std::vector<Token> &T) {
+  return llvm::all_of(T, [](const Token &K) {
+    return K.isOneOf(tok::l_paren, tok::r_paren) ||
+           (K.is(tok::numeric_constant) && StringRef(K.getLiteralData(), K.getLength()) == "0");
+  });
+}
+
 // Lex the arguments of the macro invocation Call into clauses joined by &&
 // or ||; for every clause `X op C` with a relational op and a constant side
 // C, collect the names in X. Returns false when there is none.
 bool lexArgs(CharSourceRange Call, const SourceManager &SM, const LangOptions &LO,
-             std::vector<std::string> &Names) {
+             std::vector<std::string> &Names, std::set<std::string> &FitOnly) {
+  std::set<std::string> Limit, Other;
   SourceLocation B = SM.getSpellingLoc(Call.getBegin()), E = SM.getSpellingLoc(Call.getEnd());
   if (SM.getFileID(B) != SM.getFileID(E))
     return false;
@@ -198,6 +233,8 @@ bool lexArgs(CharSourceRange Call, const SourceManager &SM, const LangOptions &L
     if (!Var)
       continue;
     const auto &V = *Var;
+    const std::vector<Token> &K = Var == &Lhs ? Rhs : Lhs;
+    bool IsLimit = typeLimit(K), IsSign = zero(K);
     for (size_t I = 0; I < V.size(); ++I) {
       const Token &T = V[I];
       if (!T.is(tok::raw_identifier))
@@ -207,8 +244,15 @@ bool lexArgs(CharSourceRange Call, const SourceManager &SM, const LangOptions &L
       if (I + 1 < V.size() && V[I + 1].is(tok::l_paren))
         continue; // a call or a macro
       Names.push_back(T.getRawIdentifier().str());
+      if (IsLimit)
+        Limit.insert(Names.back());
+      else if (!IsSign)
+        Other.insert(Names.back());
     }
   }
+  for (const std::string &N : Limit)
+    if (!Other.count(N))
+      FitOnly.insert(N);
   return !Names.empty();
 }
 
@@ -240,8 +284,8 @@ public:
           break;
         SourceLocation B = SM.getExpansionLoc(Call.getBegin()), E = SM.getExpansionLoc(Call.getEnd());
         InAssert.push_back({B, E});
-        Assertion A{B, E, {}};
-        if (lexArgs(Call, SM, LO, A.Names))
+        Assertion A{B, E, {}, {}};
+        if (lexArgs(Call, SM, LO, A.Names, A.FitOnly))
           Asserts.push_back(std::move(A));
         break;
       }
@@ -346,9 +390,13 @@ public:
     auto unsignedParam = [](QualType T) {
       return T->isIntegerType() && T->isUnsignedIntegerType() && !T->isBooleanType();
     };
-    auto isSink = [&](const DeclRefExpr *DRE) -> bool {
+    // FitOnly: the assertion only bounds the value by a type's limit; the
+    // one use that limit protects is an implicit narrowing into that type.
+    auto isSink = [&](const DeclRefExpr *DRE, bool FitOnly) -> bool {
       const Stmt *Child = DRE;
       for (const Stmt *P = PM.getParent(Child); P; Child = P, P = PM.getParent(P)) {
+        if (FitOnly && !isa<ParenExpr, ImplicitCastExpr>(P))
+          return false;
         if (const auto *CE = dyn_cast<CallExpr>(P)) {
           if (Child == CE->getCallee())
             return false;
@@ -414,7 +462,7 @@ public:
           if (!Hit.empty() || !DRE || DRE->getDecl() != V)
             return;
           SourceLocation L = SM.getExpansionLoc(DRE->getBeginLoc());
-          if (!SM.isBeforeInTranslationUnit(A.End, L) || inAssert(L) || !isSink(DRE))
+          if (!SM.isBeforeInTranslationUnit(A.End, L) || inAssert(L) || !isSink(DRE, A.FitOnly.count(N)))
             return;
           Hit = N;
           HitLine = SM.getExpansionLineNumber(L);

@@ -89,6 +89,32 @@ int long_to_int(long slnum) {
   return (int)(slnum & (long)0x7FFFFFFF);
 }
 
+// The assertion only says the value fits a type (`<= UINT32_MAX`), and the
+// narrowing that follows is an explicit cast, or the value is used where the
+// limit does not matter (FreeRDP: `WINPR_ASSERT(timeout <= UINT32_MAX);
+// WaitForMultipleObjectsEx(n, ev, FALSE, (UINT32)timeout, TRUE);`,
+// `WINPR_ASSERT(remLen <= UINT16_MAX); *out = (UINT16)remLen;
+// return check_length(s, remLen);`).
+unsigned wait_for(unsigned n, unsigned timeout);
+int check_length(void *s, size_t len);
+unsigned wait_due(uint64_t due, uint64_t now) {
+  const uint64_t timeout = due - now;
+  // ok: raptor-assert-only-bound
+  assert(timeout <= UINT32_MAX);
+  return wait_for(1, (uint32_t)timeout);
+}
+int read_header(void *s, size_t remLen, uint16_t *out) {
+  // ok: raptor-assert-only-bound
+  assert(remLen <= UINT16_MAX);
+  *out = (uint16_t)remLen;
+  return check_length(s, remLen);
+}
+int write_pdu(unsigned char *buf, size_t pos) {
+  // ok: raptor-assert-only-bound
+  assert((pos) <= (UINT32_MAX));
+  return wait_for((uint32_t)pos, 0) + buf[pos];
+}
+
 // Also checked at run time: the assertion documents it.
 int copy_checked(unsigned char *dst, const unsigned char *src, size_t n) {
   if (n > 64)
