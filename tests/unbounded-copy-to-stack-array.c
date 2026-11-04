@@ -143,3 +143,35 @@ int config_output(const XMLAttribute *att) {
   strncpy(szXmlHeaderEnd, att->value, sizeof(szXmlHeaderEnd) - 1);
   return szXmlHeaderEnd[0];
 }
+
+// CVE-2026-71979 (INDI lilxml oneXMLchar): the destination is a parameter
+// declared as an array, the caller's fixed error buffer, and the tag names
+// formatted into it grow without bound. The fix uses snprintf.
+typedef struct {
+  char *s;
+} String;
+typedef struct {
+  int ln;
+  String endtag;
+  String tag;
+} Parser;
+int close_tag(Parser *lp, char ynot[]) {
+  // ruleid: raptor-unbounded-copy-to-stack-array
+  sprintf(ynot, "Line %d: closing tag %s does not match %s", lp->ln, lp->endtag.s, lp->tag.s);
+  // ok: raptor-unbounded-copy-to-stack-array
+  sprintf(ynot, "Line %d: early XML EOF", lp->ln);
+  // ok: raptor-unbounded-copy-to-stack-array
+  snprintf(ynot, 1024, "Line %d: closing tag %s", lp->ln, lp->endtag.s);
+  return -1;
+}
+int copy_into_sized_param(char out[64], const char *s) {
+  // ruleid: raptor-unbounded-copy-to-stack-array
+  strcpy(out, s);
+  return 0;
+}
+// A plain pointer parameter says nothing about the buffer.
+int copy_into_pointer(char *out, const char *s) {
+  // ok: raptor-unbounded-copy-to-stack-array
+  strcpy(out, s);
+  return 0;
+}

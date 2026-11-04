@@ -1,0 +1,24 @@
+{
+  "name": "indi-lilxml-error-format",
+  "cve": "CVE-2026-71979",
+  "repo": "https://github.com/indilib/indi.git",
+  "vulnerable": "3220880734c86daa9f626fea011c231850f5d1f6",
+  "fixed": "96bbd7f564bbb128a129019e44eadd40dd49cff9",
+  "fixed_note": "Fix stack buffer overflow in lilxml error formatting (CVE-2026-71979) (#2473)",
+  "setup": [],
+  "checker": "raptor.UnboundedCopyToStackArray",
+  "args": [
+    "-Ilibs/indicore",
+    "-Ilibs"
+  ],
+  "files": {
+    "libs/indicore/lilxml.cpp": {
+      "vulnerable": [
+        "sprintf\\(ynot, \"Line %d: closing tag %s does not match %s\""
+      ],
+      "fixed": [
+        "snprintf\\(ynot, XML_ERROR_SIZE, \"Line %d: closing tag %s does not match %s\""
+      ]
+    }
+  }
+}

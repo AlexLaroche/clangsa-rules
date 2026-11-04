@@ -5,7 +5,8 @@
 //   char l_pattern[2 * PATTERN_MAX];
 //   strcpy(l_pattern, pattern);
 //
-// Destination: a sized local array with automatic storage.
+// Destination: a sized local array with automatic storage, or a parameter
+// declared as an array (`char ynot[]`), the caller's fixed buffer.
 // Copies: strcpy/stpcpy/strcat/wcscpy/wcscat of a source that is not a
 // literal; sprintf/vsprintf with a non-literal format, or with a "%s" that
 // has no precision and takes a non-literal argument.
@@ -15,7 +16,8 @@
 // destination; a source whose length (`strlen(s)`, or a local set from it)
 // appears in a relational comparison anywhere in the function.
 //
-// CVE-2026-40489 (editorconfig-core-c ec_glob).
+// CVE-2026-40489 (editorconfig-core-c ec_glob), CVE-2026-27821 (GPAC NHML
+// demuxer), CVE-2026-71979 (INDI lilxml, an array parameter).
 #include "Common.h"
 #include "MemFlow.h"
 #include "Registry.h"
@@ -34,14 +36,27 @@ template <class F> void walk(const Stmt *S, F &&Fn) {
     walk(C, Fn);
 }
 
-// Size in elements of a sized local array, or 0.
-uint64_t stackArraySize(const Expr *E, ASTContext &Ctx) {
+// A fixed-size destination: a sized local array (Size = its length), or a
+// parameter declared as an array (`char ynot[]`, `char out[64]`), the
+// caller's fixed buffer (Size = the declared length, 0 when unsized).
+bool fixedDestination(const Expr *E, ASTContext &Ctx, uint64_t &Size, bool &Param) {
   const auto *DRE = dyn_cast<DeclRefExpr>(raptor::strip(E));
   const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
-  if (!VD || isa<ParmVarDecl>(VD) || !VD->hasLocalStorage())
-    return 0;
+  if (!VD || !VD->hasLocalStorage())
+    return false;
+  if (const auto *PV = dyn_cast<ParmVarDecl>(VD)) {
+    QualType T = PV->getOriginalType();
+    if (!T->isArrayType())
+      return false;
+    const auto *CAT = Ctx.getAsConstantArrayType(T);
+    Size = CAT ? CAT->getSize().getZExtValue() : 0;
+    Param = true;
+    return true;
+  }
   const auto *CAT = Ctx.getAsConstantArrayType(VD->getType());
-  return CAT ? CAT->getSize().getZExtValue() : 0;
+  Size = CAT ? CAT->getSize().getZExtValue() : 0;
+  Param = false;
+  return Size != 0;
 }
 
 // Size of a source that is an array (local, global or field), or 0.
@@ -203,8 +218,9 @@ public:
       bool Format = raptor::isOneOf(N, {"sprintf", "vsprintf"});
       if (!Copy && !Format)
         return;
-      uint64_t Dst = stackArraySize(CE->getArg(0), Ctx);
-      if (!Dst)
+      uint64_t Dst = 0;
+      bool Param = false;
+      if (!fixedDestination(CE->getArg(0), Ctx, Dst, Param))
         return;
       // _chk variants carry a flag and an object size before the format.
       unsigned FmtIdx = raptor::calleeName(CE).ends_with("_chk") ? 3 : 1;
@@ -226,16 +242,21 @@ public:
         if (isLiteral(Src, Defs))
           continue;
         uint64_t SrcSize = arraySize(Src, Ctx);
-        if (SrcSize && SrcSize <= Dst)
+        if (SrcSize && Dst && SrcSize <= Dst)
           continue;
         if (Checked.count(raptor_mem::keyOf(Src)))
           continue;
         const auto *DRE = cast<DeclRefExpr>(raptor::strip(CE->getArg(0)));
+        std::string Name = DRE->getDecl()->getNameAsString();
+        std::string What =
+            !Param ? "'" + Name + "' holds " + std::to_string(Dst) + " elements"
+            : Dst  ? "'" + Name + "' is the caller's fixed buffer of " + std::to_string(Dst) +
+                        " elements"
+                   : "'" + Name + "' is the caller's fixed buffer (declared as an array)";
         raptor::reportAt(BR, this, "Unbounded copy to stack array",
-                         "'" + DRE->getDecl()->getNameAsString() + "' holds " +
-                             std::to_string(Dst) +
-                             " elements, but the length of the string copied into it is "
-                             "compared with nothing: stack overflow (CWE-121)",
+                         What +
+                             ", but the length of the string copied into it is compared with "
+                             "nothing: stack overflow (CWE-121)",
                          CE, Mgr.getAnalysisDeclContext(D));
         break;
       }
