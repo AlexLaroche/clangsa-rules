@@ -1,0 +1,33 @@
+{
+  "name": "libsmb2-dcerpc-carray-alloc",
+  "cve": "CVE-2026-115505",
+  "repo": "https://github.com/sahlberg/libsmb2.git",
+  "vulnerable": "312feca20cbb14b5489d97031dd856a31aa6aa1d",
+  "fixed": "a79f6914cb5ed3f74293d15cdea901261ce179ff",
+  "fixed_note": "dcerpc: bound the wire counts of conformant arrays and strings",
+  "checker": "raptor.UncheckedAllocProduct",
+  "args": [
+    "-Iinclude",
+    "-Iinclude/smb2",
+    "-Ilib",
+    "-DHAVE_STDINT_H",
+    "-DHAVE_STDLIB_H",
+    "-DHAVE_STRING_H",
+    "-DHAVE_STDDEF_H",
+    "-DHAVE_SYS_TYPES_H",
+    "-DHAVE_SYS_STAT_H",
+    "-DHAVE_UNISTD_H",
+    "-DSTDC_HEADERS",
+    "-D_U_=__attribute__((unused))"
+  ],
+  "files": {
+    "lib/dcerpc.c": {
+      "vulnerable": [
+        "carray->data = smb2_alloc_data\\($"
+      ],
+      "fixed": [
+        "carray->data = smb2_alloc_data\\($"
+      ]
+    }
+  }
+}

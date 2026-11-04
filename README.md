@@ -114,6 +114,7 @@ at both commits, so a case cannot pass because the code moved.
 | `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
 | `freerdp-persistent-cache-v2` | CVE-2026-111381 | `raptor.SizeFieldIgnoresCapacity` | FreeRDP `b99ed85` → `bb10797` (3.32.0) |
 | `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
+| `libsmb2-dcerpc-carray-alloc` | CVE-2026-115505 | `raptor.UncheckedAllocProduct` | libsmb2 `312feca` → `a79f691` (6.3) |
 | `freeimage-iff-pbm-rle` | CVE-2026-118752 | `raptor.UncheckedCursorWrite` | FreeImage `5af27d0` → `38fbe82` (3.19.22) |
 
 ```sh
@@ -157,7 +158,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 #### integer overflows
 
 * [**raptor.IntegerWraparound**](src/checkers/IntegerWraparound.cpp). Potential integer wraparound errors.
-* [**raptor.UncheckedAllocProduct**](src/checkers/UncheckedAllocProduct.cpp). An allocation sized by a 32-bit product of two run-time factors (`stride * height`, `w * h`), written in the call or computed into a local first, with no overflow guard on the factors (`a > INT_MAX / b`, `*_mul_overflow`, `av_size_mult`, both factors bounded by constants): when the product wraps, whatever fills the buffer writes past it. Products computed in `size_t` and constant factors do not match. As in FFmpeg's raw RGB reshuffle (CVE-2026-70628, CVE-2026-70632), OpenJPEG's `opj_image_create` (CVE-2016-9118), libtiff's RGBA strip reader on 32-bit builds (CVE-2019-17546) libsixel's high-color encoder (CVE-2026-44636, `(size_t)(width * height * 3)`) and libde265's image planes (CVE-2026-49346, `ALLOC_ALIGNED_16(stride * height + MEMORY_PADDING)`).
+* [**raptor.UncheckedAllocProduct**](src/checkers/UncheckedAllocProduct.cpp). An allocation sized by a 32-bit product of two run-time factors (`stride * height`, `w * h`), written in the call or computed into a local first, with no overflow guard on the factors (`a > INT_MAX / b`, `*_mul_overflow`, `av_size_mult`, both factors bounded by constants): when the product wraps, whatever fills the buffer writes past it. Products computed in `size_t` and constant factors do not match. As in FFmpeg's raw RGB reshuffle (CVE-2026-70628, CVE-2026-70632), OpenJPEG's `opj_image_create` (CVE-2016-9118), libtiff's RGBA strip reader on 32-bit builds (CVE-2019-17546) libsixel's high-color encoder (CVE-2026-44636, `(size_t)(width * height * 3)`) libde265's image planes (CVE-2026-49346, `ALLOC_ALIGNED_16(stride * height + MEMORY_PADDING)`) and libsmb2's DCE/RPC conformant arrays (CVE-2026-115505, `smb2_alloc_data(..., carray->max_count * elem_size)` with a count from the wire).
 * [**raptor.UnsafeStrlen**](src/checkers/UnsafeStrlen.cpp). Casting the return value of `strlen` to short might be dangerous.
 * [**raptor.IntegerTruncation**](src/checkers/IntegerTruncation.cpp). Potential integer truncation errors.
 * [**raptor.SignedUnsignedConversion**](src/checkers/SignedUnsignedConversion.cpp). Potential signed/unsigned conversion errors.
