@@ -1,0 +1,24 @@
+{
+  "name": "iccdev-calc-args-product",
+  "cve": "CVE-2026-21688",
+  "repo": "https://github.com/InternationalColorConsortium/iccDEV",
+  "vulnerable": "3da74f554249c9dafc98a34d4fe11ce6efce9cd4",
+  "fixed": "b835299f62b0664ea394df361313467b46f85e77",
+  "fixed_note": "SIccCalcOp::ArgsUsed/ArgsPushed: compute in uint64_t, clamp to icMaxDataStackSize, then (icUInt16Number)",
+  "checker": "raptor.TruncatedProduct",
+  "args": [
+    "-std=c++17",
+    "-IIccProfLib"
+  ],
+  "files": {
+    "IccProfLib/IccMpeCalc.cpp": {
+      "vulnerable": [
+        {
+          "re": "^\\s+return \\(data\\.select\\.v1\\+1\\)\\*\\(data\\.select\\.v2\\+1\\);$",
+          "count": 2
+        }
+      ],
+      "fixed": []
+    }
+  }
+}

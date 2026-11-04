@@ -1,0 +1,21 @@
+{
+  "name": "mikmod-okt-numtrk-product",
+  "cve": "CVE-2026-105839",
+  "repo": "https://github.com/sezero/mikmod",
+  "vulnerable": "e7c6c9e88fbe3e8af4668a2e116bb8de341383f8",
+  "fixed": "097b69281fad6ba38a553569e6f55dbfdd71dc2a",
+  "fixed_note": "compute numtrk in unsigned int, reject > 65535, then (UWORD)numtrk",
+  "checker": "raptor.TruncatedProduct",
+  "args": [
+    "-Ilibmikmod/include",
+    "-Ilibmikmod"
+  ],
+  "files": {
+    "libmikmod/loaders/load_okt.c": {
+      "vulnerable": [
+        "^\\t\\tof\\.numtrk = of\\.numpat \\* of\\.numchn;$"
+      ],
+      "fixed": []
+    }
+  }
+}

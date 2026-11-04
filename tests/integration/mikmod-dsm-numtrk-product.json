@@ -1,0 +1,21 @@
+{
+  "name": "mikmod-dsm-numtrk-product",
+  "cve": "CVE-2026-105837",
+  "repo": "https://github.com/sezero/mikmod",
+  "vulnerable": "08d7d2106ce3d1d6ef1dddb060e04a10b7dc8ae2",
+  "fixed": "a125eabbd086f311496ae46d08aaebcad0a1c426",
+  "fixed_note": "compute numtrk in unsigned int, reject > 65535, then (UWORD)numtrk",
+  "checker": "raptor.TruncatedProduct",
+  "args": [
+    "-Ilibmikmod/include",
+    "-Ilibmikmod"
+  ],
+  "files": {
+    "libmikmod/loaders/load_dsm.c": {
+      "vulnerable": [
+        "^\\tof\\.numtrk=of\\.numchn\\*of\\.numpat;$"
+      ],
+      "fixed": []
+    }
+  }
+}

@@ -104,6 +104,7 @@ after a line matching `after` (a label, a function header).
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
 | `mbedtls-lms-verify` | CVE-2025-49600 | `raptor.IgnoredStatusReturn` | Mbed TLS `caaffc1` → `ae449bf` (3.6.4, with `MBEDTLS_LMS_PRIVATE`) |
 | `gegl-rgbe-pixels-alloc` | CVE-2026-18300 | `raptor.UncheckedAllocProduct` | GEGL `cd4afd4` → `d3d2620` |
+| `iccdev-calc-args-product` | CVE-2026-21688 | `raptor.TruncatedProduct` | iccDEV `3da74f5` → `b835299` |
 | `gpac-nhml-xml-header-end` | CVE-2026-27821 | `raptor.UnboundedCopyToStackArray` | GPAC `bec127d` → `9bd7137` |
 | `htslib-byte-array-stop-off-by-one` | CVE-2026-31969 | `raptor.PostDecrementOffByOne` | HTSlib `d8127ae` → `88cdf69` |
 | `osslsigncode-message-digest` | CVE-2026-39853 | `raptor.WriteIntoStackBuffer` | osslsigncode `f90327d` → `cbee1e7` |
@@ -125,6 +126,8 @@ after a line matching `after` (a label, a function header).
 | `libexpat-realloc-assert-overflow` | CVE-2026-102633 | `raptor.AssertOnlyBound` | libexpat `cccede3` → `209801d` |
 | `freerdp-persistent-cache-v2` | CVE-2026-111381 | `raptor.SizeFieldIgnoresCapacity` | FreeRDP `b99ed85` → `bb10797` (3.32.0) |
 | `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
+| `mikmod-dsm-numtrk-product` | CVE-2026-105837 | `raptor.TruncatedProduct` | libmikmod `08d7d21` → `a125eab` |
+| `mikmod-okt-numtrk-product` | CVE-2026-105839 | `raptor.TruncatedProduct` | libmikmod `e7c6c9e` → `097b692` |
 | `libsmb2-dcerpc-carray-alloc` | CVE-2026-115505 | `raptor.UncheckedAllocProduct` | libsmb2 `312feca` → `a79f691` (6.3) |
 | `freeimage-iff-pbm-rle` | CVE-2026-118752 | `raptor.UncheckedCursorWrite` | FreeImage `5af27d0` → `38fbe82` (3.19.22) |
 
@@ -173,6 +176,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 
 * [**raptor.IntegerWraparound**](src/checkers/IntegerWraparound.cpp). Potential integer wraparound errors.
 * [**raptor.UncheckedAllocProduct**](src/checkers/UncheckedAllocProduct.cpp). An allocation sized by a 32-bit product of two run-time factors (`stride * height`, `w * h`), written in the call or computed into a local first, with no overflow guard on the factors (`a > INT_MAX / b`, `*_mul_overflow`, `av_size_mult`, both factors bounded by constants): when the product wraps, whatever fills the buffer writes past it. Products computed in `size_t` and constant factors do not match. As in FFmpeg's raw RGB reshuffle (CVE-2026-70628, CVE-2026-70632), OpenJPEG's `opj_image_create` (CVE-2016-9118), libtiff's RGBA strip reader on 32-bit builds (CVE-2019-17546) libsixel's high-color encoder (CVE-2026-44636, `(size_t)(width * height * 3)`) libde265's image planes (CVE-2026-49346, `ALLOC_ALIGNED_16(stride * height + MEMORY_PADDING)`) and libsmb2's DCE/RPC conformant arrays (CVE-2026-115505, `smb2_alloc_data(..., carray->max_count * elem_size)` with a count from the wire) and GEGL's RGBE reader (CVE-2026-18300, `g_new (gfloat, x_axis.size * y_axis.size * RGBE_NUM_RGBE)` with the dimensions from the file header).
+* [**raptor.TruncatedProduct**](src/checkers/TruncatedProduct.cpp). A product of two run-time values, computed in `int` by the integer promotions, implicitly stored into or returned as a type narrower than `int` that cannot hold it (the operands' declared widths add up to more than the destination's): a count or size wraps to a small value while the code that uses it still counts to the full product, as in libmikmod's DSM and OKT loaders (CVE-2026-105837, CVE-2026-105839, `of.numtrk = of.numchn * of.numpat;` with a 16-bit `numtrk`, then `AllocTracks()`) and iccDEV's calculator (CVE-2026-21688, `return (data.select.v1+1)*(data.select.v2+1);` as an `icUInt16Number` stack depth). Explicit casts (the fixes check the wide value, then `(UWORD)numtrk`), products into `int` or wider, products that fit (`u8 * u8` into 16 bits) and constant factors are not reported.
 * [**raptor.UnsafeStrlen**](src/checkers/UnsafeStrlen.cpp). Casting the return value of `strlen` to short might be dangerous.
 * [**raptor.IntegerTruncation**](src/checkers/IntegerTruncation.cpp). Potential integer truncation errors.
 * [**raptor.SignedUnsignedConversion**](src/checkers/SignedUnsignedConversion.cpp). Potential signed/unsigned conversion errors.
