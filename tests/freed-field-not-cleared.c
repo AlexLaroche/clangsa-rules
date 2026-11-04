@@ -233,3 +233,64 @@ int attribute_set(Attribute *attr, const char *data, int sz, int type) {
   attr->value->type = type;
   return 1;
 }
+
+// The error path is a shared cleanup label reached by goto (FreeRDP
+// rdpsnd_server_recv_formats, CVE-2026-63652: `out_free:
+// free(context->client_formats); return error;`, and
+// rdpsnd_server_context_free() frees client_formats again).
+typedef struct {
+  void *client_formats;
+  unsigned num_client_formats;
+} SndContext;
+int read_format(void *s, void *f);
+int recv_formats(SndContext *context, void *s, unsigned n) {
+  int error = 0;
+  context->client_formats = calloc(n, 16);
+  if (!context->client_formats)
+    return 1;
+  for (unsigned i = 0; i < n; i++)
+    if (read_format(s, (char *)context->client_formats + i * 16)) {
+      error = 2;
+      goto out_free;
+    }
+  return 0;
+out_free:
+  // ruleid: raptor-freed-field-not-cleared
+  free(context->client_formats);
+  return error;
+}
+
+// The fix: cleared under the label.
+int recv_formats_fixed(SndContext *context, void *s, unsigned n) {
+  int error = 0;
+  context->client_formats = calloc(n, 16);
+  if (!context->client_formats)
+    return 1;
+  for (unsigned i = 0; i < n; i++)
+    if (read_format(s, (char *)context->client_formats + i * 16)) {
+      error = 2;
+      goto out_free;
+    }
+  return 0;
+out_free:
+  // ok: raptor-freed-field-not-cleared
+  free(context->client_formats);
+  context->client_formats = NULL;
+  context->num_client_formats = 0;
+  return error;
+}
+
+// The success path falls into the label too: a common exit, not an error
+// path (the field is released on every path, the object presumably too).
+int scratch_formats(SndContext *context, void *s, unsigned n) {
+  int error = 0;
+  context->client_formats = calloc(n, 16);
+  if (!context->client_formats)
+    return 1;
+  if (read_format(s, context->client_formats))
+    error = 2;
+out:
+  // ok: raptor-freed-field-not-cleared
+  free(context->client_formats);
+  return error;
+}

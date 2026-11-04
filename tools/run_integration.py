@@ -13,7 +13,9 @@ plugin:
 A file maps to a list of sink regexes, used at both commits, or to
 {"vulnerable": [...], "fixed": [...]} when the fix rewrote the sink lines. A
 sink is a regex (it must match exactly one line) or {"re": ..., "count": n}
-(exactly n lines, each one checked). A sink that matches another number of
+(exactly n lines, each one checked), optionally with "after": a regex for a
+line the sink lines must follow, the first match after each such line being
+the sink (`free(ctx->f);` under `out_free:` and not in the destructor). A sink that matches another number of
 lines fails the case, so a test cannot pass because the line moved or
 vanished.
 
@@ -67,16 +69,22 @@ def analyze(plugin, src, rel, checker, args):
     return p.returncode, errors, lines
 
 
-def sink_lines(path, pattern):
+def sink_lines(path, pattern, after=None):
     rx = re.compile(pattern)
     text = path.read_text(errors='ignore').split('\n')
-    return [i for i, l in enumerate(text, 1) if rx.search(l)]
+    hits = [i for i, l in enumerate(text, 1) if rx.search(l)]
+    if after is None:
+        return hits
+    ax = re.compile(after)
+    anchors = [i for i, l in enumerate(text, 1) if ax.search(l)]
+    return sorted({min((h for h in hits if h > a), default=None) for a in anchors} - {None})
 
 
 def sinks_for(spec, side):
-    """[(regex, expected line count)] for one side of a file entry."""
+    """[(regex, expected line count, after regex)] for one side of a file entry."""
     items = spec[side] if isinstance(spec, dict) else spec
-    return [(x, 1) if isinstance(x, str) else (x['re'], x.get('count', 1)) for x in items]
+    return [(x, 1, None) if isinstance(x, str) else (x['re'], x.get('count', 1), x.get('after'))
+            for x in items]
 
 
 def run_case(case, plugin, cache, verbose):
@@ -100,8 +108,8 @@ def run_case(case, plugin, cache, verbose):
                     print('    ' + e)
                 continue
             problems = []
-            for pat, count in sinks_for(spec, side):
-                hits = sink_lines(src / rel, pat)
+            for pat, count, after in sinks_for(spec, side):
+                hits = sink_lines(src / rel, pat, after)
                 if len(hits) != count:
                     problems.append(f'sink /{pat}/ matches {len(hits)} lines {hits}, expected {count}')
                     continue

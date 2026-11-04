@@ -10,7 +10,10 @@
 //     return status;                                 // geom frees it again
 //   }
 //
-// Error path: a branch of an if that ends with a return. The release (free,
+// Error path: a branch of an if that ends with a return, or a cleanup label
+// that a goto jumps to and that the code above cannot fall into (FreeRDP
+// `out_free: free(context->client_formats); return error;`), up to the next
+// return. The release (free,
 // g_free, xfree, OPENSSL_free, `*_free(p)` with one argument; not
 // `av_freep(&p)`, which clears) is a statement of that branch, on a field
 // reached through a pointer (`x->f`, `x->a.b`).
@@ -27,7 +30,8 @@
 // `attr->value->value.asn1_string` with `attr->value->type` set on success).
 //
 // CVE-2026-88812 (X.Org xserver _CheckSetDoodad), CVE-2026-55995 (open-isns
-// isns_attr_type_string_decode / _opaque_decode).
+// isns_attr_type_string_decode / _opaque_decode), CVE-2026-63652 (FreeRDP
+// rdpsnd_server_recv_formats).
 #include "Common.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
@@ -171,11 +175,8 @@ public:
       return After && !Before;
     };
 
-    auto branch = [&](const Stmt *Br) {
-      const auto *CS = dyn_cast_or_null<CompoundStmt>(Br);
-      if (!CS || CS->body_empty() || !isa<ReturnStmt>(CS->body_back()))
-        return;
-      std::vector<const Stmt *> Stmts(CS->body_begin(), CS->body_end());
+    // Stmts: an error path, ending with a return.
+    auto path = [&](const std::vector<const Stmt *> &Stmts) {
       for (size_t I = 0; I + 1 < Stmts.size(); ++I) {
         const auto *CE = dyn_cast<CallExpr>(Stmts[I]);
         FieldPath P;
@@ -222,10 +223,47 @@ public:
                          CE, Mgr.getAnalysisDeclContext(D));
       }
     };
+    auto branch = [&](const Stmt *Br) {
+      const auto *CS = dyn_cast_or_null<CompoundStmt>(Br);
+      if (!CS || CS->body_empty() || !isa<ReturnStmt>(CS->body_back()))
+        return;
+      path(std::vector<const Stmt *>(CS->body_begin(), CS->body_end()));
+    };
+    // Labels some goto jumps to.
+    llvm::SmallPtrSet<const LabelDecl *, 4> Targets;
+    walk(Body, [&](const Stmt *S) {
+      if (const auto *G = dyn_cast<GotoStmt>(S))
+        Targets.insert(G->getLabel());
+    });
     walk(Body, [&](const Stmt *S) {
       if (const auto *If = dyn_cast<IfStmt>(S)) {
         branch(If->getThen());
         branch(If->getElse());
+      }
+      // A cleanup label reached only by goto (the statement before it
+      // returns or jumps away): from the label to the next return
+      // (`out_free: free(ctx->formats); return error;`).
+      const auto *CS = dyn_cast<CompoundStmt>(S);
+      if (!CS)
+        return;
+      std::vector<const Stmt *> Seq(CS->body_begin(), CS->body_end());
+      for (size_t I = 1; I < Seq.size(); ++I) {
+        const auto *L = dyn_cast<LabelStmt>(Seq[I]);
+        if (!L || !Targets.count(L->getDecl()) || !isa<ReturnStmt, GotoStmt>(Seq[I - 1]))
+          continue;
+        std::vector<const Stmt *> Stmts{L->getSubStmt()};
+        // nested labels (`out_free: out: ...`)
+        while (const auto *L2 = dyn_cast<LabelStmt>(Stmts.back()))
+          Stmts.back() = L2->getSubStmt();
+        size_t J = I + 1;
+        for (; J < Seq.size() && !isa<ReturnStmt>(Stmts.back()); ++J) {
+          const Stmt *X = Seq[J];
+          while (const auto *L2 = dyn_cast<LabelStmt>(X))
+            X = L2->getSubStmt();
+          Stmts.push_back(X);
+        }
+        if (isa<ReturnStmt>(Stmts.back()))
+          path(Stmts);
       }
     });
   }
