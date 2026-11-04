@@ -34,7 +34,8 @@ jobs:
             libclang-${{ matrix.llvm }}-dev llvm-${{ matrix.llvm }}-dev \
             ninja-build uuid-dev libssl-dev zlib1g-dev gcc-multilib \
             libgnutls28-dev libboost-all-dev libevent-dev libpam0g-dev nasm \
-            libapr1-dev libaprutil1-dev libopenjp2-7-dev libpcre2-dev
+            libapr1-dev libaprutil1-dev libopenjp2-7-dev libpcre2-dev \
+            x11proto-dev libpixman-1-dev libxkbfile-dev
           echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
 
       - name: Show toolchain

@@ -1,0 +1,28 @@
+{
+  "name": "xserver-xkb-doodad-text-free",
+  "cve": "CVE-2026-88812",
+  "repo": "https://gitlab.freedesktop.org/xorg/xserver.git",
+  "vulnerable": "effe0ba3cd8d17be151de0d15b6c34a1db5e177f",
+  "fixed": "0d1b1b0bad86c9ea2a3b7ca5a70e681dc69f1ecc",
+  "fixed_note": "xkb: NULL text pointer after free in _CheckSetDoodad error path (ZDI-CAN-31221)",
+  "checker": "raptor.FreedFieldNotCleared",
+  "args": [
+    "-I.",
+    "-Iinclude",
+    "-Ixkb",
+    "-Imi",
+    "-Irender",
+    "-Irandr",
+    "-IXext",
+    "-Ixfixes",
+    "-Idix",
+    "-Ios",
+    "-I/usr/include/pixman-1",
+    "-D_XSERVER64"
+  ],
+  "files": {
+    "xkb/xkb.c": [
+      "free ?\\(doodad->text\\.text\\);"
+    ]
+  }
+}
