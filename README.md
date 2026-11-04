@@ -107,9 +107,9 @@ at both commits, so a case cannot pass because the code moved.
 | `sail-tga-raw-packet` | CVE-2026-40494 | `raptor.UncheckedCursorWrite` | SAIL `c930284` → `45d48d1` |
 | `libsixel-highcolor-alloc` | CVE-2026-44636 | `raptor.UncheckedAllocProduct` | libsixel `15c4c21` → `2d8c7b0` |
 | `libde265-image-plane-alloc` | CVE-2026-49346 | `raptor.UncheckedAllocProduct` | libde265 `56fb7b8` → `8a1b5cf` |
+| `hydra-ntlm-response-sprintf` | CVE-2026-56766 | `raptor.UnboundedCopyToStackArray` | THC-Hydra `2d7330f` → `9cc84c2` |
 | `thrift-header-negative-string-length` | CVE-2026-58662 | `raptor.NegativeLengthUnchecked` | Thrift `0ab16e3` → `f961cdb` |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
-| `hydra-ntlm-response-sprintf` | CVE-2026-56766 | `raptor.UnboundedCopyToStackArray` | THC-Hydra `2d7330f` → `9cc84c2` |
 | `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
 | `indi-lilxml-error-format` | CVE-2026-71979 | `raptor.UnboundedCopyToStackArray` | INDI `3220880` → `96bbd7f` |
 | `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
