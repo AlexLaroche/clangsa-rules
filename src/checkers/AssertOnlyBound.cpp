@@ -15,8 +15,10 @@
 // or a function).
 // Sink, after the assertion: the value, or an integer expression built from
 // it, passed for a parameter of unsigned type (memcpy's size, a function
-// pointer's size_t), used as an array index, or added to or subtracted from a
-// pointer.
+// pointer's size_t), used as an array index, added to or subtracted from a
+// pointer, or implicitly converted to a narrower integer type (`*d_len = s_len;`
+// into a uint16_t after `assert(s_len < UINT16_MAX)`), where it is truncated;
+// an explicit cast (`(int)(n & MASK)`) is a deliberate truncation.
 // Not reported: a value also compared, outside assertions, in the condition
 // of an if, a loop or a ?: against something other than a constant <= 1
 // (`if (n > max)`, `i < n`, a clamp `n > MAX ? MAX : n`); a comparison that
@@ -25,7 +27,7 @@
 // (`if (len > 0)`).
 //
 // CVE-2026-66033 (libssh2 ssh2_cipher_crypt), CVE-2026-102633 (libexpat
-// expat_realloc).
+// expat_realloc), CVE-2026-58154 (Apache Traffic Server mime_str_u16_set).
 #include "Common.h"
 #include "Registry.h"
 #include "clang/AST/ParentMap.h"
@@ -374,8 +376,17 @@ public:
           return false;
         }
         if (isa<ParenExpr, ImplicitCastExpr, CStyleCastExpr>(P)) {
-          if (!cast<Expr>(P)->getType()->isIntegerType())
+          QualType To = cast<Expr>(P)->getType();
+          if (!To->isIntegerType())
             return false;
+          // Narrowed into a smaller integer type (`*d_len = s_len;` with a
+          // uint16_t): the assertion was what kept the value in range.
+          // Only an implicit conversion: an explicit cast (often with a
+          // mask, `(int)(n & MASK)`) is a deliberate truncation.
+          if (const auto *CE = dyn_cast<ImplicitCastExpr>(P))
+            if (CE->getCastKind() == CK_IntegralCast && !To->isBooleanType() &&
+                Ctx.getTypeSize(To) < Ctx.getTypeSize(DRE->getType()))
+              return true;
           continue;
         }
         return false;

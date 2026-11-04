@@ -68,6 +68,27 @@ void *mem_realloc(Mem *m, void *ptr, size_t size) {
   return m->realloc_fcn(ptr, sizeof(size_t) + PAD + size);
 }
 
+// The asserted range is the range of a narrower type the value is then
+// stored in: release builds truncate it (CVE-2026-58154, Apache Traffic
+// Server mime_str_u16_set: `ink_assert(s_len >= 0 && s_len < UINT16_MAX);`
+// then `*d_len = s_len;` into a uint16_t, fixed by rejecting the length).
+const char *str_u16_set(const char *s_str, int s_len, const char **d_str, uint16_t *d_len) {
+  // ruleid: raptor-assert-only-bound
+  assert(s_len >= 0 && s_len < UINT16_MAX);
+  *d_str = s_str;
+  *d_len = s_len;
+  return s_str;
+}
+
+// An explicit, masked narrowing is deliberate (curl curlx_sltosi).
+int long_to_int(long slnum) {
+  // ok: raptor-assert-only-bound
+  assert(slnum >= 0);
+  // ok: raptor-assert-only-bound
+  assert((unsigned long)slnum <= (unsigned long)0x7FFFFFFF);
+  return (int)(slnum & (long)0x7FFFFFFF);
+}
+
 // Also checked at run time: the assertion documents it.
 int copy_checked(unsigned char *dst, const unsigned char *src, size_t n) {
   if (n > 64)

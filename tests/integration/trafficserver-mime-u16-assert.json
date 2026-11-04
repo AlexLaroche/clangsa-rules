@@ -1,0 +1,50 @@
+{
+  "name": "trafficserver-mime-u16-assert",
+  "cve": "CVE-2026-58154",
+  "aliases": [
+    "CVE-2026-58158"
+  ],
+  "repo": "https://github.com/apache/trafficserver.git",
+  "vulnerable": "9d13175862cfb188c847a943b1b749044d322c41",
+  "fixed": "8a7a963a2927073a779d91a1678e9e3d499b9187",
+  "fixed_note": "Memory-safety errors in MIME and header parsing: mime_str_u16_set rejects oversized lengths instead of asserting",
+  "setup": [
+    [
+      "mkdir",
+      "-p",
+      "build-raptor/stub/tscore"
+    ],
+    [
+      "touch",
+      "build-raptor/stub/tscore/ink_config.h"
+    ]
+  ],
+  "checker": "raptor.AssertOnlyBound",
+  "args": [
+    "-std=gnu++17",
+    "-Iinclude",
+    "-Ilib",
+    "-Ilib/yamlcpp/include",
+    "-Iproxy",
+    "-Iproxy/hdrs",
+    "-Iproxy/http",
+    "-Iproxy/shared",
+    "-Iiocore/eventsystem",
+    "-Iiocore/net",
+    "-Iiocore/utils",
+    "-Imgmt",
+    "-Imgmt/api/include",
+    "-Iproxy/api",
+    "-Ibuild-raptor/stub"
+  ],
+  "files": {
+    "proxy/hdrs/MIME.cc": {
+      "vulnerable": [
+        "ink_assert\\(s_len >= 0 && s_len < UINT16_MAX\\);"
+      ],
+      "fixed": [
+        "if \\(s_len < 0 \\|\\| s_len > static_cast<int>\\(UINT16_MAX\\)\\) \\{"
+      ]
+    }
+  }
+}
