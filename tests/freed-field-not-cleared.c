@@ -169,3 +169,66 @@ int set_title(Header *h, const char *t) {
   }
   return 0;
 }
+
+// A field in a union, freed by a cleanup that dispatches on a tag.
+// Tag set before the release (X.Org: the doodad is a union and
+// `doodad->any.type` is set first): the cleanup frees the field again.
+typedef struct {
+  int type;
+  int priority;
+} AnyDoodad;
+typedef struct {
+  int type;
+  char *text;
+  char *font;
+} TextDoodadU;
+typedef union {
+  AnyDoodad any;
+  TextDoodadU text;
+} DoodadU;
+DoodadU *add_doodad_u(Geometry *geom, int name);
+int set_text_doodad(Geometry *geom, char **wire, int name, int type) {
+  DoodadU *doodad = add_doodad_u(geom, name);
+  if (!doodad)
+    return 11;
+  doodad->any.type = type;
+  if (get_counted_string(wire, &doodad->text.text) != 0)
+    return 2;
+  if (get_counted_string(wire, &doodad->text.font) != 0) {
+    // ruleid: raptor-freed-field-not-cleared
+    free(doodad->text.text);
+    return 2;
+  }
+  return 0;
+}
+
+// Tag set only after the release, on the success path (wolfSSL
+// wolfSSL_X509_ATTRIBUTE_set: `value.asn1_string` is freed on failure and
+// `value->type` is set afterwards): the cleanup does not touch the field.
+typedef struct {
+  char *data;
+  int length;
+} Asn1String;
+typedef struct {
+  int type;
+  union {
+    char *ptr;
+    Asn1String *asn1_string;
+  } value;
+} Asn1Type;
+typedef struct {
+  Asn1Type *value;
+} Attribute;
+Asn1String *asn1_string_new(void);
+int asn1_string_set(Asn1String *s, const char *data, int sz);
+void asn1_string_free(Asn1String *s);
+int attribute_set(Attribute *attr, const char *data, int sz, int type) {
+  attr->value->value.asn1_string = asn1_string_new();
+  if (asn1_string_set(attr->value->value.asn1_string, data, sz) != 0) {
+    // ok: raptor-freed-field-not-cleared
+    asn1_string_free(attr->value->value.asn1_string);
+    return 0;
+  }
+  attr->value->type = type;
+  return 1;
+}
