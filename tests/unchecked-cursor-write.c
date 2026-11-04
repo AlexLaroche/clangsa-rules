@@ -445,3 +445,53 @@ void rehash(void **buckets, void **old, unsigned n, void **out) {
       *out++ = node;
   }
 }
+
+// The room is handed to the callee that writes (in: room left, out: bytes
+// used), and the cursor moves by what it used (wolfSSL GetEchConfigsEx:
+// `GetEchConfig(cfg, output, &workingOutputLen); output += workingOutputLen;`).
+typedef struct Cfg {
+  struct Cfg *next;
+  int n;
+  const unsigned char *item[4];
+  unsigned int itemLen[4];
+} Cfg;
+// The callee adds up what it will write and checks it against the room it
+// was given, through its in/out length, before writing (GetEchConfig).
+static int put_config(const Cfg *c, unsigned char *out, unsigned int *len) {
+  unsigned int total = 0;
+  for (int i = 0; i < c->n; i++)
+    total += c->itemLen[i];
+  if (total > *len) {
+    *len = total;
+    return -1;
+  }
+  for (int i = 0; i < c->n; i++) {
+    for (unsigned int j = 0; j < c->itemLen[i]; j++)
+      out[j] = c->item[i][j];
+    out += c->itemLen[i];
+  }
+  *len = total;
+  return 0;
+}
+static int put_configs(const Cfg *cfgs, unsigned char *output, unsigned int *outputLen) {
+  unsigned char *start = output;
+  const Cfg *c = NULL;
+  unsigned int total = 2, room = *outputLen - 2;
+  output += 2;
+  c = cfgs;
+  while (c != NULL) {
+    put_config(c, output, &room);
+    output += room;
+    total += room;
+    room = total > *outputLen ? 0 : *outputLen - total;
+    c = c->next;
+  }
+  start[0] = (unsigned char)(total >> 8);
+  start[1] = (unsigned char)total;
+  return 0;
+}
+
+int get_configs(const Cfg *cfgs, unsigned char *output, unsigned int *outputLen) {
+  // ok: raptor-unchecked-cursor-write
+  return put_configs(cfgs, output, outputLen);
+}

@@ -20,6 +20,8 @@
 //     condition that mentions a parameter or a local initialised from one
 //     (so `for (y = 0; y < rows; ++y)` and `int lines = h; while (lines--)`
 //     copy loops are not writers in this sense), and
+//   - does not hand the room to the callee that writes and move by what it
+//     reports using (`put(c, out, &room); out += room;`);
 //   - does not count down the room it has (`bufsize -= sz`, `*left -= n`,
 //     on a parameter or a copy of one).
 // A function that passes its own parameter to an unbounded writer, without
@@ -206,7 +208,7 @@ private:
                 Room.insert(L);
     });
 
-    VarSet Compared, StepVars;
+    VarSet Compared, StepVars, Delegated;
     bool Advances = false, LoopBoundByCaller = false, Writes = false, Forwards = false,
          CountsRoom = false;
     walk(Body, [&](const Stmt *S) {
@@ -268,6 +270,19 @@ private:
       }
       if (const auto *CE = dyn_cast<CallExpr>(S)) {
         const FunctionDecl *Callee = CE->getDirectCallee();
+        // A call that gets the cursor and the address of an integer (`put(c,
+        // out, &room)`) is told the room and reports what it used.
+        bool GetsCursor = false;
+        for (const Expr *A : CE->arguments())
+          if (const VarDecl *V = refVar(pointerBase(A)))
+            GetsCursor |= Cursors.count(V) > 0;
+        if (GetsCursor)
+          for (const Expr *A : CE->arguments())
+            if (const auto *UO = dyn_cast<UnaryOperator>(raptor::strip(A)))
+              if (UO->getOpcode() == UO_AddrOf)
+                if (const VarDecl *R = refVar(UO->getSubExpr()))
+                  if (R->getType()->isIntegerType())
+                    Delegated.insert(R);
         for (unsigned I = 0; I < CE->getNumArgs(); ++I) {
           const VarDecl *V = refVar(pointerBase(CE->getArg(I)));
           if (!V || !Cursors.count(V))
@@ -285,6 +300,11 @@ private:
         return false;
     if (CountsRoom)
       return false;
+    // The cursor moves by what a callee given the room reported using
+    // (`put(c, out, &room); out += room;`).
+    for (const VarDecl *V : StepVars)
+      if (Delegated.count(V))
+        return false;
     if (Forwards)
       return true;
     if (!Advances || !Writes || LoopBoundByCaller)
