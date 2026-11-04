@@ -194,3 +194,31 @@ int copy_name(uint8_t *dst, const uint8_t *p, const uint8_t *end) {
   memcpy(dst, p, len);
   return 0;
 }
+
+// Out-parameters of a call that reads no bytes: sizes looked up from a
+// table, not decoded (wolfSSL ecc_get_key_sizes(ctx, &encKeySz, ..., &keysLen)).
+struct EciesCtx {
+  int algo;
+};
+int key_sizes(const EciesCtx *ctx, int *encKeySz, int *keysLen);
+int derive_keys(uint8_t *keys, const uint8_t *secret, const EciesCtx *ctx) {
+  int encKeySz, keysLen;
+  if (key_sizes(ctx, &encKeySz, &keysLen) != 0)
+    return -1;
+  if (keysLen > 64)
+    return -1;
+  // ok: raptor-negative-length-unchecked
+  memcpy(keys, secret, keysLen);
+  return encKeySz;
+}
+
+// A string length kept in a signed variable of the same width (wolfSSL
+// x509.c: `footerSz = (long)XSTRLEN(footer)`).
+long copy_footer(char *dst, const char *footer, long room) {
+  long footerSz = (long)strlen(footer);
+  if (footerSz > room)
+    return -1;
+  // ok: raptor-negative-length-unchecked
+  memcpy(dst, footer, footerSz);
+  return footerSz;
+}

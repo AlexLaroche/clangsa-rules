@@ -9,10 +9,12 @@
 //   str.assign((const char *)ptr, strLen);   // size_t(-1)
 //
 // Length: a local of signed integer type set from the data: its address is
-// passed to a call (an out-parameter), or it is set from an expression with a
+// passed to a call that also takes a byte buffer (an out-parameter of a
+// decoder), or it is set from an expression with a
 // call, a dereference or a subscript (a value kept in a field is program
 // state, not decoded here), and not a narrower unsigned value widened
-// (`int n = p[0]`), which cannot be negative.
+// (`int n = p[0]`) or a string length (`(long)strlen(s)`), which cannot be
+// negative.
 // Upper check: a relational comparison of the length, done in a signed type,
 // against something other than a constant <= 1, that bounds it from above on
 // the path that goes on: `if (len > X) fail;` or `if (len < X) use;`. One
@@ -62,6 +64,14 @@ bool fromData(const Expr *E, const VarDecl *V, ASTContext &Ctx) {
   QualType T = E->IgnoreParenImpCasts()->getType();
   if (T->isUnsignedIntegerType() && Ctx.getTypeSize(T) < Ctx.getTypeSize(V->getType()))
     return false;
+  // A string length (`(long)strlen(s)`): never negative in practice, even
+  // when kept in a signed type of the same width.
+  const Expr *X = raptor::strip(E);
+  while (const auto *C = dyn_cast<ExplicitCastExpr>(X))
+    X = raptor::strip(C->getSubExpr());
+  if (const auto *CE = dyn_cast<CallExpr>(X))
+    if (raptor::isOneOf(raptor::calleeName(CE), {"strlen", "strnlen", "wcslen", "wcsnlen"}))
+      return false;
   bool Found = false;
   walk(E, [&](const Stmt *S) {
     if (isa<CallExpr>(S) || isa<ArraySubscriptExpr>(S))
@@ -71,6 +81,19 @@ bool fromData(const Expr *E, const VarDecl *V, ASTContext &Ctx) {
         Found = true;
   });
   return Found;
+}
+
+// Does the call take a byte buffer (a pointer to char-sized or void data)?
+bool readsBytes(const CallExpr *CE) {
+  for (const Expr *A : CE->arguments()) {
+    QualType T = A->IgnoreParenImpCasts()->getType();
+    if (const auto *PT = T->getAs<PointerType>()) {
+      QualType P = PT->getPointeeType();
+      if (P->isVoidType() || P->isCharType())
+        return true;
+    }
+  }
+  return false;
 }
 
 bool isSmallConst(const Expr *E, ASTContext &Ctx) {
@@ -122,6 +145,11 @@ public:
             if (signedInt(V) && fromData(BO->getRHS(), V, Ctx))
               Data.insert(V);
       } else if (const auto *CE = dyn_cast<CallExpr>(S)) {
+        // An out-parameter is decoded from the data only when the call also
+        // reads bytes (`readVarint32(ptr, &len, end)`); one filled from a
+        // table (`key_sizes(ctx, &encKeySz, &keysLen)`) is not.
+        if (!readsBytes(CE))
+          return;
         for (const Expr *A : CE->arguments()) {
           const Expr *X = raptor::strip(A);
           while (const auto *C = dyn_cast<ExplicitCastExpr>(X))
