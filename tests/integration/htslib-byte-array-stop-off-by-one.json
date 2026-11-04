@@ -1,0 +1,40 @@
+{
+  "name": "htslib-byte-array-stop-off-by-one",
+  "cve": "CVE-2026-31969",
+  "repo": "https://github.com/samtools/htslib.git",
+  "vulnerable": "d8127aed2c7e0c7874f6beaf792244490b6fa8c9",
+  "fixed": "88cdf69e4b83bb550ab4f6f7134892c2ad1978f4",
+  "fixed_note": "Fix byte_array_stop out-of-data checks",
+  "setup": [
+    [
+      "git",
+      "submodule",
+      "update",
+      "--init",
+      "--depth",
+      "1",
+      "htscodecs"
+    ],
+    [
+      "touch",
+      "config.h"
+    ]
+  ],
+  "checker": "raptor.PostDecrementOffByOne",
+  "args": [
+    "-I."
+  ],
+  "files": {
+    "cram/cram_codecs.c": {
+      "vulnerable": [
+        "if \\(term-- < 0\\)"
+      ],
+      "fixed": [
+        {
+          "re": "while \\(--term >= 0 && \\*cp != c->u\\.byte_array_stop\\.stop\\) \\{",
+          "count": 2
+        }
+      ]
+    }
+  }
+}
