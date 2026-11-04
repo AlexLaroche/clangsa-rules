@@ -99,6 +99,31 @@ void *bad()
 	processPacket(pkt);
 }
 
+// A list freed node by node: `s = n` moves to another node, so s->name and
+// s are new pointers on each iteration.
+struct node { struct node *next; char *name; };
+void free_list(struct node *s)
+{
+	struct node *n;
+	for (; s; s = n) {
+		n = s->next;
+		// ok: raptor-double-free
+		free(s->name);
+		// ok: raptor-double-free
+		free(s);
+	}
+}
+void free_array(char **v, int c)
+{
+	char **p = v;
+	while (c-- > 0) {
+		// ok: raptor-double-free
+		free(*p);
+		p++;
+	}
+	free(v);
+}
+
 int main()
 {
 	printf("Hello, World!");

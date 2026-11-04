@@ -84,12 +84,44 @@ inline std::string definedKey(const clang::Stmt *S) {
 
 using KeySet = std::set<std::string>;
 
-// free($PTR) marks $PTR as freed; `$PTR = ...` (or a new declaration of
-// $PTR) clears it.
-inline void trackFrees(const clang::Stmt *S, KeySet &Freed) {
+// The key S moves to another object: `$PTR = ...`, a declaration, or
+// `$PTR++`, `--$PTR`, `$PTR += n`.
+inline std::string movedKey(const clang::Stmt *S) {
+  using namespace clang;
   std::string K = definedKey(S);
   if (!K.empty())
-    Freed.erase(K);
+    return K;
+  if (const auto *UO = dyn_cast<UnaryOperator>(S))
+    if (UO->isIncrementDecrementOp())
+      return keyOf(UO->getSubExpr());
+  if (const auto *CA = dyn_cast<CompoundAssignOperator>(S))
+    if (CA->getOpcode() == BO_AddAssign || CA->getOpcode() == BO_SubAssign)
+      return keyOf(CA->getLHS());
+  return "";
+}
+
+// Forget K and everything reached through it (`K->f`, `K.f`, `K[0]`, `*K`):
+// once K points elsewhere (`s = s->next` in a list walk), those are other
+// objects.
+inline void eraseFrom(KeySet &Set, const std::string &K) {
+  for (auto It = Set.begin(); It != Set.end();) {
+    llvm::StringRef X(*It);
+    bool Derived = X == K;
+    for (const char *Sep : {"->", ".", "["})
+      Derived |= X.starts_with(K + Sep);
+    for (llvm::StringRef Y = X; Y.consume_front("*");)
+      Derived |= Y == K || Y.starts_with(K + "->") || Y.starts_with(K + ".") ||
+                 Y.starts_with(K + "[");
+    It = Derived ? Set.erase(It) : std::next(It);
+  }
+}
+
+// free($PTR) marks $PTR as freed; `$PTR = ...` (or a new declaration of
+// $PTR, or moving $PTR) clears it and what is reached through it.
+inline void trackFrees(const clang::Stmt *S, KeySet &Freed) {
+  std::string K = movedKey(S);
+  if (!K.empty())
+    eraseFrom(Freed, K);
   if (isCallTo(S, "free")) {
     const auto *CE = llvm::cast<clang::CallExpr>(S);
     if (CE->getNumArgs() == 1) {
