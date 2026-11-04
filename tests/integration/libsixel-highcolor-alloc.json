@@ -1,0 +1,32 @@
+{
+  "name": "libsixel-highcolor-alloc",
+  "cve": "CVE-2026-44636",
+  "repo": "https://github.com/saitoha/libsixel.git",
+  "vulnerable": "15c4c21c01bf959f322fcd2605c57e4c7c5ccbf8",
+  "fixed": "2d8c7b08eee524f5864fe76be628d366e7bcac15",
+  "fixed_note": "encoder: guard highcolor allocation sizes for GHSA-hx93-w8p2-ffh5",
+  "setup": [
+    [
+      "./configure"
+    ]
+  ],
+  "checker": "raptor.UncheckedAllocProduct",
+  "args": [
+    "-DHAVE_CONFIG_H",
+    "-I.",
+    "-Iinclude",
+    "-Isrc"
+  ],
+  "files": {
+    "src/tosixel.c": {
+      "vulnerable": [
+        "normalized_pixels = \\(unsigned char \\*\\)sixel_allocator_malloc\\(dither->allocator,$",
+        "paletted_pixels = \\(sixel_index_t \\*\\)sixel_allocator_malloc\\(dither->allocator,$"
+      ],
+      "fixed": [
+        "normalized_pixels = \\(unsigned char \\*\\)sixel_allocator_malloc\\($",
+        "paletted_pixels = \\(sixel_index_t \\*\\)sixel_allocator_malloc\\(dither->allocator,$"
+      ]
+    }
+  }
+}
