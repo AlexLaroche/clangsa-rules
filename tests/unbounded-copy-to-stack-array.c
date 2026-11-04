@@ -127,3 +127,19 @@ int open_name(int m, int big) {
   strcat(name, modes[m]);
   return name[0];
 }
+
+// CVE-2026-27821 (GPAC nhmldmx_config_output): an XML attribute value copied
+// into a local array; the fix bounds it with strncpy.
+typedef struct {
+  char *name, *value;
+} XMLAttribute;
+int config_output(const XMLAttribute *att) {
+  char szXmlHeaderEnd[1000];
+  // ok: raptor-unbounded-copy-to-stack-array
+  strcpy(szXmlHeaderEnd, "");
+  // ruleid: raptor-unbounded-copy-to-stack-array
+  strcpy(szXmlHeaderEnd, att->value);
+  // ok: raptor-unbounded-copy-to-stack-array
+  strncpy(szXmlHeaderEnd, att->value, sizeof(szXmlHeaderEnd) - 1);
+  return szXmlHeaderEnd[0];
+}

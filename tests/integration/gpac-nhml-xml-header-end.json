@@ -1,0 +1,35 @@
+{
+  "name": "gpac-nhml-xml-header-end",
+  "cve": "CVE-2026-27821",
+  "repo": "https://github.com/gpac/gpac.git",
+  "vulnerable": "bec127d3da178bbaecfc6456d83ec60c22544f4a",
+  "fixed": "9bd7137fded2db40de61a2cf3045812c8741ec52",
+  "fixed_note": "fix buffer overflow in nhml dmx",
+  "setup": [
+    [
+      "mkdir",
+      "-p",
+      "build-raptor"
+    ],
+    [
+      "touch",
+      "build-raptor/config.h"
+    ]
+  ],
+  "checker": "raptor.UnboundedCopyToStackArray",
+  "args": [
+    "-DGPAC_HAVE_CONFIG_H",
+    "-Ibuild-raptor",
+    "-Iinclude"
+  ],
+  "files": {
+    "src/filters/dmx_nhml.c": {
+      "vulnerable": [
+        "strcpy\\(szXmlHeaderEnd, att->value\\);"
+      ],
+      "fixed": [
+        "strncpy\\(szXmlHeaderEnd, att->value, GF_ARRAY_LENGTH\\(szXmlHeaderEnd\\)-1\\);"
+      ]
+    }
+  }
+}
