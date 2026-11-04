@@ -12,7 +12,7 @@
 // Source: the second argument is a pointer or array field `obj->f` (directly,
 // as `&obj->f[i]` or `obj->f + off`, or through local pointers set from
 // them), and obj's struct has an integer field holding its size: a generic
-// name (size, len, length, count...) or the buffer's own name with a size
+// name (size, len, length...) or the buffer's own name with a size
 // suffix (buf_len, finish_md_len, uncompressed_size for uncompressed_buffer).
 // Length: the third argument, unless it is a constant. Its slice is the
 // variables and fields it uses, followed back through the definitions of
@@ -192,8 +192,7 @@ private:
       return Out;
     std::string Sep = Src->isArrow() ? "->" : ".";
     for (const FieldDecl *F : FD->getParent()->fields())
-      if (F != FD && F->getType()->isIntegerType() && F->getIdentifier() &&
-          raptor_mem::isSizeOf(F->getName(), FD->getName()))
+      if (F != FD && F->getType()->isIntegerType() && raptor_mem::isSizeField(F, FD))
         Out.insert(Base + Sep + F->getNameAsString());
     return Out;
   }

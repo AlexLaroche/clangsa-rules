@@ -17,6 +17,7 @@ typedef struct {
 } Entry;
 
 typedef struct {
+  void *fp;
   uint8_t *bmpData;
   uint32_t bmpSize;
 } Cache;
@@ -25,12 +26,12 @@ typedef struct {
   uint16_t width, height;
 } EntryV2;
 
-int read_header(Cache *c, EntryV2 *e);
+int read_header(void *fp, EntryV2 *e);
 
 // CVE-2026-111381
 int read_entry_v2(Cache *persistent, Entry *entry) {
   EntryV2 entry2;
-  if (read_header(persistent, &entry2) != 0)
+  if (read_header(persistent->fp, &entry2) != 0)
     return -1;
   entry->width = entry2.width;
   entry->height = entry2.height;
@@ -163,4 +164,70 @@ void reclaim(Buf *buf) {
   buf->data = buf->alloc_buf;
   // ok: raptor-size-field-ignores-capacity
   buf->data_len = data_size;
+}
+
+// nginx ngx_str_t slices.
+typedef struct {
+  size_t len;
+  uint8_t *data;
+} Str;
+uint8_t *pool_alloc(size_t n);
+
+// A size pairs with the nearest assignment of its pointer: here a fresh
+// allocation, not the buffer set further down (nginx ngx_http_script.c).
+int complex_value(Str *value, size_t len, uint8_t *pos) {
+  Str e;
+  // ok: raptor-size-field-ignores-capacity
+  value->len = len;
+  value->data = pool_alloc(len);
+  if (value->data == NULL)
+    return -1;
+  e = *value;
+  value->data = e.data;
+  // ok: raptor-size-field-ignores-capacity
+  value->len = pos - e.data;
+  return 0;
+}
+
+// The buffer is a slice built in this function (nginx ssl_session_cache).
+int split_zone(const Str *value, Str *name, Str *size) {
+  size_t j, len = 0;
+  for (j = 7; j < value->len; j++) {
+    if (value->data[j] == ':')
+      break;
+    len++;
+  }
+  if (len == 0 || j == value->len)
+    return -1;
+  name->len = len;
+  name->data = value->data + 7;
+  // ok: raptor-size-field-ignores-capacity
+  size->len = value->len - j - 1;
+  size->data = name->data + len + 1;
+  return 0;
+}
+
+// A reference count is not a capacity (nginx r->count).
+typedef struct {
+  uint8_t *request_start;
+  int method;
+  unsigned count;
+  Str request_line;
+} Request;
+void set_request_line(Request *r, uint8_t *end) {
+  r->request_line.data = r->request_start;
+  // ok: raptor-size-field-ignores-capacity
+  r->request_line.len = end - r->request_start;
+}
+
+// The object holding the buffer and its capacity is handed to a call that
+// bounds the result (nginx regex captures: ngx_regex_exec(re, s, captures)).
+int regex_exec(const Str *s, int *captures);
+void capture_var(const Str *s, Str *vv) {
+  int caps[4];
+  if (regex_exec(s, caps) < 0)
+    return;
+  vv->data = s->data + caps[0];
+  // ok: raptor-size-field-ignores-capacity
+  vv->len = caps[1] - caps[0];
 }

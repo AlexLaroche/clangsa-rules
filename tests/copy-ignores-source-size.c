@@ -213,3 +213,26 @@ void spread(Lerc2 *sp, unsigned int i, unsigned int src_stride, unsigned int dst
   memmove(sp->uncompressed_buffer + i * dst_stride, sp->uncompressed_buffer + i * src_stride,
           src_stride);
 }
+
+// A reference count is not a size (nginx ngx_http_request_t.count).
+typedef struct {
+  unsigned char *request_start;
+  int method;
+  unsigned count;
+} Req;
+void copy_request(unsigned char *d, Req *r, size_t n) {
+  // ok: raptor-copy-ignores-source-size
+  memcpy(d, r->request_start, n);
+}
+
+// `size` next to an element count is the element size (nginx ngx_array_t).
+typedef struct {
+  void *elts;
+  unsigned nelts;
+  size_t size;
+  unsigned nalloc;
+} Array;
+void copy_elts(void *d, const Array *a) {
+  // ok: raptor-copy-ignores-source-size
+  memcpy(d, a->elts, a->nelts * 16);
+}

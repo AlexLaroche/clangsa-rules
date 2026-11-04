@@ -132,13 +132,14 @@ solveForward(const clang::CFG &G, const Transfer &T) {
 }
 
 // Is Size the size of the buffer field Ptr? Either a generic name (size,
-// len, length, count, nbytes, used) or the buffer's own name, without a
+// len, length, nbytes, used, sz) or the buffer's own name, without a
 // _buffer/_buf/_data/_ptr suffix, followed by a size suffix (buf -> buf_len,
 // finish_md -> finish_md_len, uncompressed_buffer -> uncompressed_size).
 inline bool isSizeOf(llvm::StringRef Size, llvm::StringRef Ptr) {
   std::string S = Size.lower(), P = Ptr.lower();
   llvm::StringRef SR(S);
-  if (raptor::isOneOf(SR, {"size", "len", "length", "count", "nbytes", "used", "n", "sz"}))
+  // Not count or n: they count things (elements, references), not bytes.
+  if (raptor::isOneOf(SR, {"size", "len", "length", "nbytes", "used", "sz"}))
     return true;
   std::vector<std::string> Stems{P};
   for (llvm::StringRef Suf : {"_buffer", "_buf", "_data", "_ptr", "buffer", "buf", "data", "ptr"})
@@ -155,6 +156,22 @@ inline bool isSizeOf(llvm::StringRef Size, llvm::StringRef Ptr) {
       return true;
   }
   return false;
+}
+
+// isSizeOf on two fields of one struct, except a generic `size` next to an
+// element count (nelts, nitems, nmemb, nalloc), which is the size of one
+// element (nginx ngx_array_t).
+inline bool isSizeField(const clang::FieldDecl *Size, const clang::FieldDecl *Ptr) {
+  if (!Size->getIdentifier() || !Ptr->getIdentifier() ||
+      !isSizeOf(Size->getName(), Ptr->getName()))
+    return false;
+  if (Size->getName().lower() != "size")
+    return true;
+  for (const clang::FieldDecl *F : Size->getParent()->fields())
+    if (F->getIdentifier() &&
+        raptor::isOneOf(llvm::StringRef(F->getName().lower()), {"nelts", "nitems", "nmemb", "nalloc"}))
+      return false;
+  return true;
 }
 
 } // namespace raptor_mem

@@ -6,17 +6,22 @@
 //   entry->data = persistent->bmpData;          // holds persistent->bmpSize
 //
 // Pair: in one block, `x->p = <buffer>` and `x->s = <size>` on the same
-// object, where s is a size field of p (size, len, p_len...).
+// object, where s is a size field of p (size, len, p_len...), and no other
+// assignment of x->p in that block is nearer to the size.
 // Buffer: a pointer or array field `y->b` (directly, plus an offset, or
 // through a local pointer set from it) whose struct has a capacity field for
 // b (bmpData -> bmpSize, block -> block_size).
 // Size: not a constant. Its slice is the variables and fields it uses,
 // followed back through the definitions of locals.
-// Not reported: the slice contains the size field itself (`x->len =
-// x->len - k` keeps the pair's invariant) or a capacity field; a relational comparison
-// mentions a capacity field and shares a variable with the slice (`n >
-// c->bmpSize`, `allocated > bmpSize` with `allocated` set from `expected`);
-// a capacity field is set from the slice.
+// Not reported: a buffer whose owner (the object holding it and its
+// capacity) is passed to a call, which bounds what it returns (regex
+// captures); a buffer built in this function (a field set here, or a
+// part of a local struct set here: `name.data = v.data + 7`, `e = *value`);
+// a size whose slice contains the size field itself (`x->len = x->len - k`
+// keeps the pair's invariant) or a capacity field; a function that compares
+// a capacity field with anything, directly or through a local set from it
+// (`for (j = 7; j < value->len; j++) len++;`, `if (n > c->bmpSize)`); a
+// capacity field set from the slice.
 //
 // CVE-2026-111381 (FreeRDP persistent cache v2 parser).
 #include "Common.h"
@@ -76,6 +81,40 @@ public:
       }
     });
 
+    // Fields set in this function, and local structs set here.
+    std::set<std::string> Owned;
+    for (const BinaryOperator *A : FieldAssigns)
+      Owned.insert(raptor_mem::keyOf(A->getLHS()));
+    walk(Body, [&](const Stmt *S) {
+      const VarDecl *V = nullptr;
+      if (const auto *DS = dyn_cast<DeclStmt>(S)) {
+        for (const Decl *Dc : DS->decls())
+          if (const auto *VD = dyn_cast<VarDecl>(Dc))
+            if (VD->getInit() && VD->getType()->isRecordType())
+              Owned.insert(VD->getNameAsString());
+      } else if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
+        if (BO->isAssignmentOp())
+          V = localVar(BO->getLHS());
+      }
+      if (V && V->getType()->isRecordType())
+        Owned.insert(V->getNameAsString());
+    });
+    const SourceManager &SM = Ctx.getSourceManager();
+    // Objects passed to calls, as `x` or `&x`.
+    std::set<std::string> Passed;
+    walk(Body, [&](const Stmt *S) {
+      if (const auto *CE = dyn_cast<CallExpr>(S))
+        for (const Expr *A : CE->arguments()) {
+          const Expr *X = raptor::strip(A);
+          if (const auto *UO = dyn_cast<UnaryOperator>(X))
+            if (UO->getOpcode() == UO_AddrOf)
+              X = raptor::strip(UO->getSubExpr());
+          std::string K = raptor_mem::keyOf(X);
+          if (!K.empty())
+            Passed.insert(K);
+        }
+    });
+
     for (const BinaryOperator *PtrA : FieldAssigns) {
       const auto *PtrME = cast<MemberExpr>(raptor::strip(PtrA->getLHS()));
       const auto *PtrFD = dyn_cast<FieldDecl>(PtrME->getMemberDecl());
@@ -88,17 +127,25 @@ public:
       Keys Caps = capacityKeys(Buf);
       if (Caps.empty())
         continue;
+      // A buffer built here (a slice of a local struct, or a field set in
+      // this function) is not another object's buffer.
+      if (builtHere(raptor_mem::keyOf(Buf), Owned))
+        continue;
+      // The object holding the buffer and its capacity is handed to a call,
+      // which bounds what it returns (`ngx_regex_exec(re, s, captures)`).
+      if (Passed.count(raptor_mem::keyOf(Buf->getBase())))
+        continue;
       std::string Obj = raptor_mem::keyOf(PtrME->getBase());
       for (const BinaryOperator *SizeA : FieldAssigns) {
         const auto *SizeME = cast<MemberExpr>(raptor::strip(SizeA->getLHS()));
         const auto *SizeFD = dyn_cast<FieldDecl>(SizeME->getMemberDecl());
         if (!SizeFD || SizeFD->getParent() != PtrFD->getParent() ||
-            !SizeFD->getType()->isIntegerType() || !SizeFD->getIdentifier() ||
-            raptor_mem::keyOf(SizeME->getBase()) != Obj ||
-            !raptor_mem::isSizeOf(SizeFD->getName(), PtrFD->getName()))
+            !SizeFD->getType()->isIntegerType() || raptor_mem::keyOf(SizeME->getBase()) != Obj ||
+            !raptor_mem::isSizeField(SizeFD, PtrFD))
           continue;
-        // One pair: both set in the same block.
-        if (PM.getParent(SizeA) != PM.getParent(PtrA))
+        // One pair: both set in the same block, and no assignment of the
+        // pointer is nearer to the size than this one.
+        if (PM.getParent(SizeA) != PM.getParent(PtrA) || nearestPtr(SizeA, PtrME, FieldAssigns, PM, SM) != PtrA)
           continue;
         const Expr *Size = raptor::strip(SizeA->getRHS());
         if (Size->isValueDependent() || Size->isIntegerConstantExpr(Ctx))
@@ -119,6 +166,40 @@ public:
   }
 
 private:
+  // Is Key, or an object it is a part of (`e` for `e.data`, `name` for
+  // `name->data`... only when that object is in Owned), set in this function?
+  static bool builtHere(const std::string &Key, const std::set<std::string> &Owned) {
+    if (Owned.count(Key))
+      return true;
+    for (size_t I = 0; I < Key.size(); ++I)
+      if ((Key[I] == '.' || (Key[I] == '-' && I + 1 < Key.size() && Key[I + 1] == '>')) &&
+          Owned.count(Key.substr(0, I)))
+        return true;
+    return false;
+  }
+
+  // The assignment of the pointer field (same key as PtrME) in SizeA's block
+  // nearest to SizeA.
+  static const BinaryOperator *nearestPtr(const BinaryOperator *SizeA, const MemberExpr *PtrME,
+                                          const std::vector<const BinaryOperator *> &FieldAssigns,
+                                          ParentMap &PM, const SourceManager &SM) {
+    std::string Key = raptor_mem::keyOf(PtrME);
+    unsigned At = SM.getFileOffset(SM.getExpansionLoc(SizeA->getBeginLoc()));
+    const BinaryOperator *Best = nullptr;
+    unsigned BestDist = ~0u;
+    for (const BinaryOperator *A : FieldAssigns) {
+      if (PM.getParent(A) != PM.getParent(SizeA) || raptor_mem::keyOf(A->getLHS()) != Key)
+        continue;
+      unsigned Off = SM.getFileOffset(SM.getExpansionLoc(A->getBeginLoc()));
+      unsigned Dist = Off > At ? Off - At : At - Off;
+      if (Dist < BestDist) {
+        BestDist = Dist;
+        Best = A;
+      }
+    }
+    return Best;
+  }
+
   static Keys slice(const Expr *E, const DefMap &Defs) {
     Keys Out;
     std::set<std::string> Done;
@@ -162,7 +243,9 @@ private:
       bool HasCap = false;
       for (const std::string &K : CS)
         HasCap |= Caps.count(K) > 0;
-      if (HasCap && shares(CS))
+      // The function consults the capacity (`j < value->len`, or `p < last`
+      // with `last = s.data + s.len`): the size is bounded on that path.
+      if (HasCap)
         return true;
     }
     for (const BinaryOperator *A : FieldAssigns)
@@ -213,8 +296,7 @@ private:
       return Out;
     std::string Sep = Buf->isArrow() ? "->" : ".";
     for (const FieldDecl *F : FD->getParent()->fields())
-      if (F != FD && F->getType()->isIntegerType() && F->getIdentifier() &&
-          raptor_mem::isSizeOf(F->getName(), FD->getName()))
+      if (F != FD && F->getType()->isIntegerType() && raptor_mem::isSizeField(F, FD))
         Out.insert(Base + Sep + F->getNameAsString());
     return Out;
   }
