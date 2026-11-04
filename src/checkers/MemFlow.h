@@ -52,6 +52,10 @@ inline const clang::Expr *findKey(const clang::Stmt *S,
                                   const std::set<std::string> &Keys) {
   if (!S || Keys.empty())
     return nullptr;
+  // sizeof/alignof do not evaluate their operand (`sizeof(p->tbl[0])`)
+  if (const auto *UE = llvm::dyn_cast<clang::UnaryExprOrTypeTraitExpr>(S))
+    if (!UE->isArgumentType() && !UE->getArgumentExpr()->getType()->isVariableArrayType())
+      return nullptr;
   if (const auto *E = llvm::dyn_cast<clang::Expr>(S)) {
     std::string K = keyOf(E);
     if (!K.empty() && Keys.count(K))
@@ -116,12 +120,60 @@ inline void eraseFrom(KeySet &Set, const std::string &K) {
   }
 }
 
+// A call that does not come back: a noreturn function, or one defined in
+// the translation unit whose body ends by calling one (`static void
+// usage(int c) { ...; exit(c); }`, a `Fatal()` that ends with exit()).
+inline bool neverReturns(const clang::CallExpr *CE) {
+  using namespace clang;
+  const FunctionDecl *FD = CE->getDirectCallee();
+  if (!FD)
+    return false;
+  if (FD->isNoReturn())
+    return true;
+  const FunctionDecl *Def = nullptr;
+  if (!FD->hasBody(Def))
+    return false;
+  const auto *Body = dyn_cast_or_null<CompoundStmt>(Def->getBody());
+  if (!Body || Body->body_empty())
+    return false;
+  const auto *Last = dyn_cast<CallExpr>(Body->body_back());
+  if (!Last)
+    if (const auto *E = dyn_cast<Expr>(Body->body_back()))
+      Last = dyn_cast<CallExpr>(E->IgnoreParenCasts());
+  const FunctionDecl *LF = Last ? Last->getDirectCallee() : nullptr;
+  return LF && LF->isNoReturn();
+}
+
 // free($PTR) marks $PTR as freed; `$PTR = ...` (or a new declaration of
-// $PTR, or moving $PTR) clears it and what is reached through it.
+// $PTR, or moving $PTR) clears it and what is reached through it, as does
+// handing it to a call that can set it again (`f(&p)`, `f(pp)` with pp a
+// pointer to pointer, for *pp). A call that never returns ends the path.
 inline void trackFrees(const clang::Stmt *S, KeySet &Freed) {
+  using namespace clang;
   std::string K = movedKey(S);
   if (!K.empty())
     eraseFrom(Freed, K);
+  if (const auto *CE = dyn_cast<CallExpr>(S)) {
+    if (neverReturns(CE)) {
+      Freed.clear();
+      return;
+    }
+    if (raptor::calleeName(CE) != "free")
+      for (const Expr *A : CE->arguments()) {
+        const Expr *X = raptor::strip(A);
+        if (const auto *UO = dyn_cast_or_null<UnaryOperator>(X);
+            UO && UO->getOpcode() == UO_AddrOf) {
+          std::string AK = keyOf(UO->getSubExpr());
+          if (!AK.empty())
+            eraseFrom(Freed, AK);
+        } else if (X && X->getType()->isPointerType() &&
+                   X->getType()->getPointeeType()->isPointerType()) {
+          std::string AK = keyOf(X);
+          if (!AK.empty())
+            eraseFrom(Freed, "*" + AK);
+        }
+      }
+  }
   if (isCallTo(S, "free")) {
     const auto *CE = llvm::cast<clang::CallExpr>(S);
     if (CE->getNumArgs() == 1) {

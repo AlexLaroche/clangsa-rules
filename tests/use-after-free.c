@@ -356,6 +356,60 @@ int bad_code7()
 	return 0;
 }
 
+// sizeof does not read its operand (libarchive cab: `free(ds->pos_tbl);
+// ds->pos_tbl = malloc(sizeof(ds->pos_tbl[0]) * w_slot);`).
+struct tbl { int *pos_tbl; };
+int regrow(struct tbl *ds, int n)
+{
+	free(ds->pos_tbl);
+	// ok: raptor-use-after-free
+	ds->pos_tbl = malloc(sizeof(ds->pos_tbl[0]) * n);
+	return ds->pos_tbl != NULL;
+}
+
+// An out-parameter refills the pointer (libssh2 test fixture:
+// `free(*out); ret = run_command(out, ...); strchr(*out, '\r')`).
+int run_command(char **out, const char *cmd);
+int rerun(char **out)
+{
+	free(*out);
+	int ret = run_command(out, "port");
+	// ok: raptor-use-after-free
+	char *hit = strchr(*out, '\r');
+	return ret || hit;
+}
+
+// A function that always exits ends the path (libtiff tiffdump:
+// `free(visited_diroff); Fatal("Cycle detected");`).
+static void fatal(const char *msg);
+void check_cycle(long *visited, int n, long off)
+{
+	for (int j = 0; j < n; j++)
+		if (visited[j] == off) {
+			free(visited);
+			fatal("cycle");
+		}
+	// ok: raptor-use-after-free
+	visited[0] = off;
+}
+static void fatal(const char *msg)
+{
+	fprintf(stderr, "%s\n", msg);
+	exit(1);
+}
+
+// Passing &p lets the call set p again; nothing is read through p (bsdtar
+// apply_substitution(..., &subst_name, ...)).
+int substitute(const char *in, char **out);
+int resubstitute(const char *a, const char *b)
+{
+	char *subst;
+	if (substitute(a, &subst) == 1)
+		free(subst);
+	// ok: raptor-use-after-free
+	return substitute(b, &subst);
+}
+
 int main()
 {
 	printf("Hello, World!");

@@ -31,9 +31,14 @@ const Stmt *useOf(const Stmt *S, const raptor_mem::KeySet &Freed) {
   if (const auto *CE = dyn_cast<CallExpr>(S)) {
     if (raptor::calleeName(CE) == "free")
       return nullptr;
-    for (const Expr *A : CE->arguments())
+    for (const Expr *A : CE->arguments()) {
+      // &p: the call may set p again, nothing is read through it
+      if (const auto *UO = dyn_cast<UnaryOperator>(raptor::strip(A));
+          UO && UO->getOpcode() == UO_AddrOf && In(UO->getSubExpr()))
+        continue;
       if (raptor_mem::findKey(A, Freed))
         return S;
+    }
   }
   return nullptr;
 }

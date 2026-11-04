@@ -124,6 +124,42 @@ void free_array(char **v, int c)
 	free(v);
 }
 
+// &p hands the pointer to a call that sets it again (bsdtar:
+// `apply_substitution(..., &subst_name, ...); free(subst_name);` twice).
+int substitute(const char *in, char **out);
+void rename_entry(const char *a, const char *b)
+{
+	char *subst;
+	if (substitute(a, &subst) == 1)
+		free(subst);
+	if (substitute(b, &subst) == 1)
+		// ok: raptor-double-free
+		free(subst);
+}
+
+// A function that always exits (fax2ps: `case 'h': free(pages);
+// usage(0); break; case '?': free(pages);`).
+static void usage(int code)
+{
+	exit(code);
+}
+void options(int c, short *pages)
+{
+	for (;;) {
+		switch (c) {
+		case 'h':
+			free(pages);
+			usage(0);
+			break;
+		case '?':
+			// ok: raptor-double-free
+			free(pages);
+			usage(1);
+			break;
+		}
+	}
+}
+
 int main()
 {
 	printf("Hello, World!");
