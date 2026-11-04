@@ -1,0 +1,40 @@
+{
+  "name": "thrift-header-negative-string-length",
+  "cve": "CVE-2026-58662",
+  "repo": "https://github.com/apache/thrift.git",
+  "vulnerable": "0ab16e3a83637711f4e0f788c205f66576fd0a55",
+  "fixed": "f961cdb44249c293fcce6a840ffa1f7419fd88d0",
+  "fixed_note": "fix info-header string bound check in THeaderTransport::readString (THRIFT, #3610)",
+  "setup": [
+    [
+      "mkdir",
+      "-p",
+      "build-raptor/thrift"
+    ],
+    [
+      "touch",
+      "build-raptor/thrift/config.h"
+    ]
+  ],
+  "checker": "raptor.NegativeLengthUnchecked",
+  "args": [
+    "-std=c++17",
+    "-Ilib/cpp/src",
+    "-Ibuild-raptor",
+    "-DHAVE_ARPA_INET_H",
+    "-DHAVE_NETINET_IN_H",
+    "-DSIGNED_RIGHT_SHIFT_IS=1",
+    "-DARITHMETIC_RIGHT_SHIFT=1"
+  ],
+  "files": {
+    "lib/cpp/src/thrift/transport/THeaderTransport.cpp": {
+      "vulnerable": [
+        "str\\.assign\\(reinterpret_cast<const char\\*>\\(ptr\\), strLen\\);"
+      ],
+      "fixed": [
+        "str\\.assign\\(reinterpret_cast<const char\\*>\\(strStart\\), strLen\\);",
+        "^\\s*ptr = strStart \\+ strLen;"
+      ]
+    }
+  }
+}

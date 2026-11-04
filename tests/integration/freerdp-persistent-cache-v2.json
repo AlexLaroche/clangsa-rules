@@ -1,0 +1,69 @@
+{
+  "name": "freerdp-persistent-cache-v2",
+  "cve": "CVE-2026-111381",
+  "repo": "https://github.com/FreeRDP/FreeRDP.git",
+  "vulnerable": "b99ed85cb9bde6ebe6550453c98ddf3f4580ad78",
+  "fixed": "bb10797ee9687b226af29684fbfb30c53dd73935",
+  "fixed_note": "[cache,persistent] fix bitmap buffer size (released in 3.32.0)",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-raptor",
+      "-G",
+      "Ninja",
+      "-DWITH_CLIENT=OFF",
+      "-DWITH_SERVER=OFF",
+      "-DWITH_SAMPLE=OFF",
+      "-DWITH_X11=OFF",
+      "-DWITH_WAYLAND=OFF",
+      "-DWITH_FFMPEG=OFF",
+      "-DWITH_SWSCALE=OFF",
+      "-DWITH_CUPS=OFF",
+      "-DWITH_PULSE=OFF",
+      "-DWITH_ALSA=OFF",
+      "-DWITH_FUSE=OFF",
+      "-DWITH_PCSC=OFF",
+      "-DWITH_KRB5=OFF",
+      "-DWITH_CHANNELS=OFF",
+      "-DWITH_MANPAGES=OFF",
+      "-DWITH_JSON_DISABLED=ON",
+      "-DWITH_CLIENT_SDL=OFF",
+      "-DWITH_SHADOW=OFF",
+      "-DWITH_PROXY=OFF",
+      "-DWITH_PLATFORM_SERVER=OFF",
+      "-DWITH_OPUS=OFF",
+      "-DWITH_LAME=OFF",
+      "-DWITH_FAAD2=OFF",
+      "-DWITH_FAAC=OFF",
+      "-DWITH_SOXR=OFF",
+      "-DWITH_WEBVIEW=OFF",
+      "-DWITH_DSP_FFMPEG=OFF",
+      "-DWITH_URIPARSER=OFF",
+      "-DWITH_AAD=OFF"
+    ]
+  ],
+  "checker": "raptor.SizeFieldIgnoresCapacity",
+  "args": [
+    "-std=gnu11",
+    "-Iinclude",
+    "-Iwinpr/include",
+    "-Ibuild-raptor/include",
+    "-Ibuild-raptor/winpr/include",
+    "-Ilibfreerdp",
+    "-Ibuild-raptor/libfreerdp",
+    "-Ilibfreerdp/cache"
+  ],
+  "files": {
+    "libfreerdp/cache/persistent.c": {
+      "vulnerable": [
+        "entry->size = entry2\\.width \\* entry2\\.height \\* 4;"
+      ],
+      "fixed": [
+        "entry->size = WINPR_ASSERTING_INT_CAST\\(UINT32, expected\\);"
+      ]
+    }
+  }
+}

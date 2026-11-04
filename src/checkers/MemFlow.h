@@ -11,6 +11,7 @@
 #include <functional>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace raptor_mem {
 
@@ -128,6 +129,32 @@ solveForward(const clang::CFG &G, const Transfer &T) {
     }
   }
   return In;
+}
+
+// Is Size the size of the buffer field Ptr? Either a generic name (size,
+// len, length, count, nbytes, used) or the buffer's own name, without a
+// _buffer/_buf/_data/_ptr suffix, followed by a size suffix (buf -> buf_len,
+// finish_md -> finish_md_len, uncompressed_buffer -> uncompressed_size).
+inline bool isSizeOf(llvm::StringRef Size, llvm::StringRef Ptr) {
+  std::string S = Size.lower(), P = Ptr.lower();
+  llvm::StringRef SR(S);
+  if (raptor::isOneOf(SR, {"size", "len", "length", "count", "nbytes", "used", "n", "sz"}))
+    return true;
+  std::vector<std::string> Stems{P};
+  for (llvm::StringRef Suf : {"_buffer", "_buf", "_data", "_ptr", "buffer", "buf", "data", "ptr"})
+    if (llvm::StringRef(P).ends_with(Suf) && P.size() > Suf.size()) {
+      Stems.push_back(P.substr(0, P.size() - Suf.size()));
+      break;
+    }
+  for (const std::string &Stem : Stems) {
+    if (!SR.starts_with(Stem))
+      continue;
+    llvm::StringRef Rest = SR.drop_front(Stem.size());
+    if (raptor::isOneOf(Rest, {"_len", "len", "_size", "size", "_length", "length", "_count",
+                               "count", "_used", "used", "_sz", "sz", "_bytes", "bytes"}))
+      return true;
+  }
+  return false;
 }
 
 } // namespace raptor_mem

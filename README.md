@@ -7,8 +7,9 @@ registered as `raptor.<CamelCaseRuleName>`, e.g. `raptor-use-after-free` ->
 `raptor.UseAfterFree`, plus checkers of our own such as
 `raptor.TaintedLengthInCopy`, `raptor.IgnoredStatusReturn`,
 `raptor.UncheckedCursorWrite`, `raptor.UncheckedSourceOffset`,
-`raptor.WStreamLengthUnsealed`, `raptor.UncheckedAllocProduct` and
-`raptor.CopyIgnoresSourceSize`.
+`raptor.WStreamLengthUnsealed`, `raptor.UncheckedAllocProduct`,
+`raptor.CopyIgnoresSourceSize`, `raptor.NegativeLengthUnchecked`,
+`raptor.UnboundedCopyToStackArray` and `raptor.SizeFieldIgnoresCapacity`.
 
 Because clang runs the preprocessor, every file that compiles is analysed:
 `#if`/`#else` splits that make semgrep drop whole files (e.g. OpenSSL
@@ -100,10 +101,13 @@ at both commits, so a case cannot pass because the code moved.
 | `libmicrodns-rr-decode` | CVE-2020-6072 | `raptor.IgnoredStatusReturn` | libmicrodns `0103f40` → `89de67f` (0.1.2) |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
 | `mbedtls-lms-verify` | CVE-2025-49600 | `raptor.IgnoredStatusReturn` | Mbed TLS `caaffc1` → `ae449bf` (3.6.4, with `MBEDTLS_LMS_PRIVATE`) |
+| `editorconfig-glob-pattern-copy` | CVE-2026-40489 | `raptor.UnboundedCopyToStackArray` | editorconfig-core-c `b4724e4` → `5159be8` |
 | `sail-tga-raw-packet` | CVE-2026-40494 | `raptor.UncheckedCursorWrite` | SAIL `c930284` → `45d48d1` |
+| `thrift-header-negative-string-length` | CVE-2026-58662 | `raptor.NegativeLengthUnchecked` | Thrift `0ab16e3` → `f961cdb` |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
 | `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
 | `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
+| `freerdp-persistent-cache-v2` | CVE-2026-111381 | `raptor.SizeFieldIgnoresCapacity` | FreeRDP `b99ed85` → `bb10797` (3.32.0) |
 | `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
 | `freeimage-iff-pbm-rle` | CVE-2026-118752 | `raptor.UncheckedCursorWrite` | FreeImage `5af27d0` → `38fbe82` (3.19.22) |
 
@@ -141,6 +145,9 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.UncheckedCursorWrite**](src/checkers/UncheckedCursorWrite.cpp). A write position advanced by data-dependent steps with no end check, in two shapes. *Unbounded writer*: a buffer passed to a function that advances a cursor in a loop (`table += table_size`) and writes through it without ever comparing it to a bound or counting down the room left, when the caller does not compare that buffer pointer either (libwebp CVE-2023-4863). *Run loop*: an outer loop checks an index against the end (`while (written < line)`), but an inner loop whose count comes from the data moves that index and writes (`for (k = 0; k < count; k++) bits[written++] = b;`) with no clamp on the way to it or inside it (FreeImage CVE-2026-118752, SAIL CVE-2026-40494). Loops bounded by a parameter, writers that count down their room, single offsets, constant runs and runs that test a position in their own condition are not reported.
 * [**raptor.UncheckedSourceOffset**](src/checkers/UncheckedSourceOffset.cpp). A `memcpy`/`memmove` reading a buffer obtained from a call at an offset scaled by a loop counter (`base + i * k`), when nothing compares the loop bound, or a size computed from it, with anything: a heap over-read, as in DCMTK's NumberOfFrames copy (CVE-2026-97059).
 * [**raptor.WStreamLengthUnsealed**](src/checkers/WStreamLengthUnsealed.cpp). FreeRDP/WinPR: `Stream_Length()` of a `wStream` that is filled by position (`Stream_Write_*`, `Stream_Seek`...) and never sealed (`Stream_SealLength`) is its capacity, not the data written; streams are followed across the file through fields, variables and parameters. As in the WebSocket Pong over-disclosure (CVE-2026-67292).
+* [**raptor.NegativeLengthUnchecked**](src/checkers/NegativeLengthUnchecked.cpp). A signed length read from the data (an out-parameter such as `readVarint32(p, &len, end)`, or a call result) is checked only from above, in a signed comparison (`if (len > end - p) throw`), then used as a size or a pointer advance: a negative value passes the check and becomes a huge `size_t`, as in Apache Thrift's `THeaderTransport::readString` (CVE-2026-58662). A comparison with 0 or 1, an unsigned comparison, a bound from below on the path that uses the length (`if (n >= need) use`, `while (i < n)`), lengths kept in fields and narrower unsigned values widened are not reported.
+* [**raptor.UnboundedCopyToStackArray**](src/checkers/UnboundedCopyToStackArray.cpp). A string of unknown length is copied into a fixed-size local array (`strcpy`, `strcat`, `sprintf` with a `%s` that has no precision, `vsprintf`) and nothing in the function compares its length (`strlen(s)`, or a local set from it) with anything: a stack overflow, as in editorconfig-core-c's `ec_glob` (CVE-2026-40489). Literals, tables of literals, locals only set to literals and source arrays that fit are not reported.
+* [**raptor.SizeFieldIgnoresCapacity**](src/checkers/SizeFieldIgnoresCapacity.cpp). A (pointer, size) pair is set up in one block to describe another object's buffer (`entry->data = persistent->bmpData; entry->size = w * h * 4;`), but the size neither comes from that buffer's capacity field (`bmpSize`) nor is compared with it, so whoever uses the pair reads or writes past the end, as in FreeRDP's persistent cache v2 parser (CVE-2026-111381). Constant sizes, sizes derived from the capacity or from the field's own old value, and fresh allocations are not reported.
 
 #### integer overflows
 

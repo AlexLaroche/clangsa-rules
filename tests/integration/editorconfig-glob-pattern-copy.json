@@ -1,0 +1,32 @@
+{
+  "name": "editorconfig-glob-pattern-copy",
+  "cve": "CVE-2026-40489",
+  "repo": "https://github.com/editorconfig/editorconfig-core-c.git",
+  "vulnerable": "b4724e4755719224e34fbb0628e471a4ed9b68a4",
+  "fixed": "5159be88ad50641d9843289adda791ba300421ff",
+  "fixed_note": "Completes the buffer-overflow fix from #87 (incomplete fix for CVE-2023-0341)",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-raptor"
+    ]
+  ],
+  "checker": "raptor.UnboundedCopyToStackArray",
+  "args": [
+    "-Iinclude",
+    "-Ibuild-raptor/src/auto"
+  ],
+  "files": {
+    "src/lib/ec_glob.c": {
+      "vulnerable": [
+        "strcpy\\(l_pattern, pattern\\);"
+      ],
+      "fixed": [
+        "memcpy\\(l_pattern, pattern, pattern_len \\+ 1\\);"
+      ]
+    }
+  }
+}

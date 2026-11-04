@@ -447,11 +447,10 @@ bool assignsFrom(const Stmt *S, const Keys &Targets, const Keys &From) {
 }
 
 class RunLoops {
-  ASTContext &Ctx;
   ParentMap PM;
 
 public:
-  RunLoops(ASTContext &C, const Stmt *Body) : Ctx(C), PM(const_cast<Stmt *>(Body)) {}
+  explicit RunLoops(const Stmt *Body) : PM(const_cast<Stmt *>(Body)) {}
 
   // The first write of each inner loop of Body that overruns its outer
   // loop's bound.
@@ -661,7 +660,7 @@ public:
     ASTContext &Ctx = Mgr.getASTContext();
     Analysis A(Ctx);
     llvm::SmallVector<const Stmt *, 8> Runs;
-    RunLoops(Ctx, Body).find(Body, Runs);
+    RunLoops(Body).find(Body, Runs);
     for (const Stmt *R : Runs)
       raptor::reportAt(BR, this, "Unchecked cursor write",
                        "Write in a run whose count comes from the data: the run moves the "
