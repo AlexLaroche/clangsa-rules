@@ -1,0 +1,69 @@
+{
+  "name": "osslsigncode-message-digest",
+  "cve": "CVE-2026-39853",
+  "repo": "https://github.com/mtrojnar/osslsigncode.git",
+  "vulnerable": "f90327df09bf10401e5d0f87c3af40bdec339915",
+  "fixed": "cbee1e723c5a8547302bd841ad9943ed8144db68",
+  "fixed_note": "Fixed buffer overflow while extracting msg digest",
+  "checker": "raptor.WriteIntoStackBuffer",
+  "args": [
+    "-I.",
+    "-DHAVE_SYS_MMAN_H"
+  ],
+  "files": {
+    "cab.c": {
+      "vulnerable": [
+        "memcpy\\(mdbuf, idc->messageDigest->digest->data, \\(size_t\\)idc->messageDigest->digest->length\\)"
+      ],
+      "fixed": [
+        "spc_extract_digest_safe\\(idc, mdbuf, &mdtype\\) < 0"
+      ]
+    },
+    "cat.c": {
+      "vulnerable": [
+        "memcpy\\(mdbuf, idc->messageDigest->digest->data, \\(size_t\\)idc->messageDigest->digest->length\\)"
+      ],
+      "fixed": [
+        "spc_extract_digest_safe\\(idc, mdbuf, &mdtype\\) < 0"
+      ]
+    },
+    "msi.c": {
+      "vulnerable": [
+        "memcpy\\(mdbuf, idc->messageDigest->digest->data, \\(size_t\\)idc->messageDigest->digest->length\\)"
+      ],
+      "fixed": [
+        "spc_extract_digest_safe\\(idc, mdbuf, &mdtype\\) < 0"
+      ]
+    },
+    "osslsigncode.c": {
+      "vulnerable": [
+        "memcpy\\(mdbuf, idc->messageDigest->digest->data, \\(size_t\\)idc->messageDigest->digest->length\\)"
+      ],
+      "fixed": [
+        "spc_extract_digest_safe\\(idc, mdbuf, &mdtype\\) < 0"
+      ]
+    },
+    "pe.c": {
+      "vulnerable": [
+        "memcpy\\(mdbuf, idc->messageDigest->digest->data, \\(size_t\\)idc->messageDigest->digest->length\\)"
+      ],
+      "fixed": [
+        "spc_extract_digest_safe\\(idc, mdbuf, &mdtype\\) < 0"
+      ]
+    },
+    "script.c": {
+      "vulnerable": [
+        "memcpy\\(mdbuf, idc->messageDigest->digest->data, \\(size_t\\)idc->messageDigest->digest->length\\)"
+      ],
+      "fixed": [
+        "spc_extract_digest_safe\\(idc, mdbuf, &mdtype\\) < 0"
+      ]
+    },
+    "helpers.c": {
+      "vulnerable": [],
+      "fixed": [
+        "memcpy\\(mdbuf, idc->messageDigest->digest->data, \\(size_t\\)digest_len\\)"
+      ]
+    }
+  }
+}
