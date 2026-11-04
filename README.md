@@ -103,12 +103,12 @@ at both commits, so a case cannot pass because the code moved.
 | `mbedtls-lms-verify` | CVE-2025-49600 | `raptor.IgnoredStatusReturn` | Mbed TLS `caaffc1` → `ae449bf` (3.6.4, with `MBEDTLS_LMS_PRIVATE`) |
 | `gpac-nhml-xml-header-end` | CVE-2026-27821 | `raptor.UnboundedCopyToStackArray` | GPAC `bec127d` → `9bd7137` |
 | `editorconfig-glob-pattern-copy` | CVE-2026-40489 | `raptor.UnboundedCopyToStackArray` | editorconfig-core-c `b4724e4` → `5159be8` |
-| `libsixel-highcolor-alloc` | CVE-2026-44636 | `raptor.UncheckedAllocProduct` | libsixel `15c4c21` → `2d8c7b0` |
 | `sail-tga-raw-packet` | CVE-2026-40494 | `raptor.UncheckedCursorWrite` | SAIL `c930284` → `45d48d1` |
+| `libsixel-highcolor-alloc` | CVE-2026-44636 | `raptor.UncheckedAllocProduct` | libsixel `15c4c21` → `2d8c7b0` |
 | `thrift-header-negative-string-length` | CVE-2026-58662 | `raptor.NegativeLengthUnchecked` | Thrift `0ab16e3` → `f961cdb` |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
-| `indi-lilxml-error-format` | CVE-2026-71979 | `raptor.UnboundedCopyToStackArray` | INDI `3220880` → `96bbd7f` |
 | `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
+| `indi-lilxml-error-format` | CVE-2026-71979 | `raptor.UnboundedCopyToStackArray` | INDI `3220880` → `96bbd7f` |
 | `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
 | `freerdp-persistent-cache-v2` | CVE-2026-111381 | `raptor.SizeFieldIgnoresCapacity` | FreeRDP `b99ed85` → `bb10797` (3.32.0) |
 | `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
