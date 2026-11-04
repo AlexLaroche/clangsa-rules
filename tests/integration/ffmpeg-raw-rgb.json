@@ -1,6 +1,9 @@
 {
   "name": "ffmpeg-raw-rgb",
   "cve": "CVE-2026-70628",
+  "aliases": [
+    "CVE-2026-70632"
+  ],
   "repo": "https://github.com/FFmpeg/FFmpeg.git",
   "vulnerable": "3538578ed0a4a43d057a575fb327444e815dbbb4",
   "fixed": "d32b387f2b0a484599d4587d651891f0c63c4238",
