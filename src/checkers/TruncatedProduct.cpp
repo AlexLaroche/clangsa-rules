@@ -36,50 +36,12 @@ bool isConst(const Expr *E, const ASTContext &Ctx) {
   return !E->isValueDependent() && E->EvaluateAsInt(R, Ctx);
 }
 
-// Bits needed for the values E can take, before promotion; 0 when unknown.
-unsigned width(const Expr *E, const ASTContext &Ctx) {
-  E = E->IgnoreParens();
-  Expr::EvalResult R;
-  if (!E->isValueDependent() && E->EvaluateAsInt(R, Ctx)) {
-    const llvm::APSInt &V = R.Val.getInt();
-    return V.isNegative() ? Ctx.getIntWidth(E->getType()) : std::max(1u, V.getActiveBits());
-  }
-  if (const auto *ICE = dyn_cast<ImplicitCastExpr>(E)) {
-    if (ICE->getCastKind() == CK_IntegralCast || ICE->getCastKind() == CK_LValueToRValue ||
-        ICE->getCastKind() == CK_NoOp)
-      return width(ICE->getSubExpr(), Ctx);
-  }
-  if (const auto *ME = dyn_cast<MemberExpr>(E))
-    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()); FD && FD->isBitField())
-      return FD->getBitWidthValue();
-  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
-    unsigned L = width(BO->getLHS(), Ctx), Rt = width(BO->getRHS(), Ctx);
-    switch (BO->getOpcode()) {
-    case BO_Add:
-    case BO_Sub:
-      return std::max(L, Rt) + 1;
-    case BO_Or:
-    case BO_Xor:
-      return std::max(L, Rt);
-    case BO_And:
-      return std::min(L, Rt);
-    case BO_Shr:
-      return L;
-    default:
-      break;
-    }
-  }
-  if (const auto *CO = dyn_cast<ConditionalOperator>(E))
-    return std::max(width(CO->getTrueExpr(), Ctx), width(CO->getFalseExpr(), Ctx));
-  QualType T = E->getType();
-  if (!T->isIntegerType())
-    return 0;
-  return Ctx.getIntWidth(T);
-}
+using raptor::valueBits;
 
 class Visitor : public RecursiveASTVisitor<Visitor> {
 public:
-  Visitor(ASTContext &Ctx, std::function<void(const Expr *, QualType, unsigned)> Report)
+  Visitor(ASTContext &Ctx,
+          std::function<void(const Expr *, QualType, unsigned)> Report)
       : Ctx(Ctx), Report(std::move(Report)) {}
 
   // E converted to Dest: report when it is a product that does not fit.
@@ -92,11 +54,13 @@ public:
     unsigned WD = Ctx.getIntWidth(Dest);
     if (WD >= Ctx.getIntWidth(Ctx.IntTy))
       return;
-    const auto *Mul = dyn_cast<BinaryOperator>(ICE->getSubExpr()->IgnoreParens());
+    const auto *Mul =
+        dyn_cast<BinaryOperator>(ICE->getSubExpr()->IgnoreParens());
     if (!Mul || Mul->getOpcode() != BO_Mul || isConst(Mul->getLHS(), Ctx) ||
         isConst(Mul->getRHS(), Ctx))
       return;
-    unsigned L = width(Mul->getLHS(), Ctx), R = width(Mul->getRHS(), Ctx);
+    unsigned L = valueBits(Mul->getLHS(), Ctx),
+             R = valueBits(Mul->getRHS(), Ctx);
     if (!L || !R || L + R <= WD)
       return;
     Report(Mul, Dest, L + R);
@@ -129,21 +93,23 @@ private:
 
 class TruncatedProductChecker : public Checker<check::ASTCodeBody> {
 public:
-  void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr, BugReporter &BR) const {
+  void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr,
+                        BugReporter &BR) const {
     ASTContext &Ctx = Mgr.getASTContext();
     Visitor V(Ctx, [&](const Expr *Mul, QualType Dest, unsigned Bits) {
       if (Mul->getBeginLoc().isMacroID() && Mul->getEndLoc().isMacroID() &&
           Ctx.getSourceManager().isInSystemMacro(Mul->getBeginLoc()))
         return;
-      raptor::reportAt(BR, this, "Truncated product",
-                       "this product of run-time values needs up to " + std::to_string(Bits) +
-                           " bits but is stored in the " +
-                           std::to_string(Ctx.getIntWidth(Dest)) + "-bit '" +
-                           Dest.getUnqualifiedType().getAsString() +
-                           "': a count or size computed this way wraps to a small value, "
-                           "while the code that uses it still counts to the full product "
-                           "(CWE-190, CWE-681)",
-                       Mul, Mgr.getAnalysisDeclContext(D));
+      raptor::reportAt(
+          BR, this, "Truncated product",
+          "this product of run-time values needs up to " +
+              std::to_string(Bits) + " bits but is stored in the " +
+              std::to_string(Ctx.getIntWidth(Dest)) + "-bit '" +
+              Dest.getUnqualifiedType().getAsString() +
+              "': a count or size computed this way wraps to a small value, "
+              "while the code that uses it still counts to the full product "
+              "(CWE-190, CWE-681)",
+          Mul, Mgr.getAnalysisDeclContext(D));
     });
     V.Fn = dyn_cast<FunctionDecl>(D);
     V.TraverseStmt(const_cast<Stmt *>(D->getBody()));

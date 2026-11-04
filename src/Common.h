@@ -21,6 +21,12 @@ inline constexpr const char *Category = "Security (raptor)";
 // several.
 std::string oneLine(llvm::StringRef S);
 
+// Bits needed for the values E can take, before the integer promotions: a
+// constant's active bits, a bit-field's width, the declared type's width
+// otherwise; one more for `+`/`-`, the larger for `|`, `^`, `?:`, the
+// smaller for `&`. 0 when E is not an integer.
+unsigned valueBits(const clang::Expr *E, const clang::ASTContext &Ctx);
+
 // Report Msg at node S for checker C (used by AST-based checkers).
 void reportAt(clang::ento::BugReporter &BR, const clang::ento::CheckerBase *C,
               llvm::StringRef Name, llvm::StringRef Msg, const clang::Stmt *S,

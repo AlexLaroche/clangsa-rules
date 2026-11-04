@@ -187,3 +187,146 @@ int *strides(int numcomps) {
   // ok: raptor-unchecked-alloc-product
   return malloc(stride * numcomps);
 }
+
+// Only a positivity check: the product still wraps (the common sanity check
+// on image dimensions before the allocation).
+unsigned char *positive_only(int w, int h) {
+  if (w <= 0 || h <= 0)
+    return NULL;
+  // ruleid: raptor-unchecked-alloc-product
+  return malloc(w * h);
+}
+
+// Upper bounds too large for the product to fit.
+unsigned char *loose_bound(unsigned w, unsigned h) {
+  if (w > 0x7fffffff || h > 0x7fffffff)
+    return NULL;
+  // ruleid: raptor-unchecked-alloc-product
+  return malloc(w * h);
+}
+
+// Upper bounds that keep the product in range.
+unsigned char *tight_bound(unsigned w, unsigned h) {
+  if (w > 4096 || h > 4096)
+    return NULL;
+  // ok: raptor-unchecked-alloc-product
+  return malloc(w * h);
+}
+
+// Inside the range test.
+unsigned char *inside_bound(unsigned w, unsigned h) {
+  if (w < 4096 && h <= 4096)
+    // ok: raptor-unchecked-alloc-product
+    return malloc(w * h);
+  return NULL;
+}
+
+// Clamped before the allocation.
+unsigned char *clamped(unsigned w, unsigned h) {
+  if (w > 1024)
+    w = 1024;
+  if (h > 1024)
+    h = 1024;
+  // ok: raptor-unchecked-alloc-product
+  return malloc(w * h);
+}
+
+// The check comes after the allocation.
+unsigned char *late_check(unsigned w, unsigned h) {
+  // ruleid: raptor-unchecked-alloc-product
+  unsigned char *p = malloc(w * h);
+  if (w > 4096 || h > 4096) {
+    free(p);
+    return NULL;
+  }
+  return p;
+}
+
+// A bound that does not stop the allocation.
+unsigned char *warn_only(unsigned w, unsigned h, int *big) {
+  if (w > 4096 || h > 4096)
+    *big = 1;
+  // ruleid: raptor-unchecked-alloc-product
+  return malloc(w * h);
+}
+
+// Narrow factors: an 8-bit by 16-bit product always fits.
+unsigned char *small_factors(uint8_t depth, uint16_t width) {
+  // ok: raptor-unchecked-alloc-product
+  return malloc(depth * width);
+}
+
+// The size stored in an array element first (FreeRDP CVE-2026-55191,
+// planar decoder: `piDstSize[x] = piDstStride[x] * h;` then
+// `winpr_aligned_recalloc(pDstData[x], piDstSize[x], 1, 16)`).
+void *aligned_recalloc(void *p, size_t n, size_t s, size_t a);
+int planes(unsigned char **dst, uint32_t *size, uint32_t *stride, uint32_t w, uint32_t h) {
+  for (uint32_t x = 0; x < 3; x++) {
+    stride[x] = w;
+    size[x] = stride[x] * h;
+    if (size[x] == 0)
+      return 0;
+    // ruleid: raptor-unchecked-alloc-product
+    dst[x] = aligned_recalloc(dst[x], size[x], 1, 16);
+  }
+  return 1;
+}
+
+// Through two locals and a rounding macro (kissfft CVE-2026-41445,
+// kiss_fftndr_alloc: `dimOther*(dimReal+2)*sizeof(kiss_fft_scalar)` in
+// nrbufs, then `memneeded = ... + KISS_FFT_ALIGN_SIZE_UP(nrbufs)`).
+#define ALIGN_UP(s) (((s) + 15) & ~(size_t)15)
+void *fftndr(int dimOther, int dimReal) {
+  size_t nrbufs = dimOther * (dimReal + 2) * sizeof(float);
+  size_t memneeded = ALIGN_UP(64) + ALIGN_UP(nrbufs);
+  // ruleid: raptor-unchecked-alloc-product
+  return malloc(memneeded);
+}
+
+// The fix: the product is computed in size_t.
+void *fftndr_fixed(int dimOther, int dimReal) {
+  size_t nrbufs = (size_t)dimOther * (dimReal + 2) * sizeof(float);
+  size_t memneeded = ALIGN_UP(64) + ALIGN_UP(nrbufs);
+  // ok: raptor-unchecked-alloc-product
+  return malloc(memneeded);
+}
+
+// The check is on the variable holding the product (OpenJPEG
+// opj_pi_create_decode: `if (l_step_l <= (UINT_MAX / (numlayers + 1U)))`).
+short *include_array(unsigned max_res, unsigned step_r, unsigned layers) {
+  unsigned step_l = max_res * step_r;
+  if (step_l <= UINT_MAX / (layers + 1U))
+    // ok: raptor-unchecked-alloc-product
+    return calloc((layers + 1U) * step_l, sizeof(short));
+  return NULL;
+}
+
+// Bounded by assertions (OpenJPEG opj_t1_allocate_buffers).
+#include <assert.h>
+int *block_buffer(unsigned w, unsigned h) {
+  assert(w <= 1024);
+  assert(h <= 1024);
+  unsigned datasize = w * h;
+  // ok: raptor-unchecked-alloc-product
+  return malloc(datasize * sizeof(int));
+}
+
+// The bound holds after an if whose else exits.
+int *else_exit(unsigned w, unsigned h) {
+  if (w < 1024 && h < 1024)
+    ;
+  else
+    return NULL;
+  // ok: raptor-unchecked-alloc-product
+  return malloc(w * h);
+}
+
+// The allocation multiplies in size_t: a per-line size computed in 32 bits
+// is a factor, not the total (libde265 de265_image_get_buffer after the
+// fix: `luma_bpl = luma_stride * bytes;` then
+// `ALLOC_ALIGNED_16((size_t)luma_height * luma_bpl + PADDING)`).
+unsigned char *plane(uint32_t width, uint32_t height, int depth) {
+  uint32_t bpl = width * ((depth + 7) / 8);
+  // ok: raptor-unchecked-alloc-product
+  return malloc((size_t)height * bpl + 64);
+}

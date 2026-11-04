@@ -1,0 +1,17 @@
+{
+  "name": "kissfft-fftndr-alloc",
+  "cve": "CVE-2026-41445",
+  "repo": "https://github.com/mborgerding/kissfft.git",
+  "vulnerable": "39c9781711ac53fab6d2034ace6c3aedadae6599",
+  "fixed": "8a8e66e33d692bad1376fe7904d87d767730537f",
+  "fixed_note": "kiss_fftndr_alloc: compute the buffer size in size_t and check it against the dimensions",
+  "checker": "raptor.UncheckedAllocProduct",
+  "args": [
+    "-I."
+  ],
+  "files": {
+    "kiss_fftndr.c": [
+      "^        ptr = \\(char\\*\\) malloc\\(memneeded\\);$"
+    ]
+  }
+}
