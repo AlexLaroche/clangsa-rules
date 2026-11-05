@@ -1,0 +1,34 @@
+{
+  "name": "pjsip-auth-digest-ha1-copy",
+  "cve": "CVE-2026-40892",
+  "repo": "https://github.com/pjsip/pjproject.git",
+  "vulnerable": "97deb021db12eb657e75f847fb42a92a9330ef16",
+  "fixed": "c82123ea6f3c3652bbc9ebd5e9e658c301451687",
+  "fixed_note": "sip_auth_client: copy the pre-computed digest with the algorithm's digest length, not the credential's",
+  "setup": [
+    [
+      "touch",
+      "pjlib/include/pj/config_site.h"
+    ]
+  ],
+  "checker": "raptor.UseOfSourceSizeInCopy",
+  "args": [
+    "-DPJ_IS_LITTLE_ENDIAN=1",
+    "-DPJ_IS_BIG_ENDIAN=0",
+    "-Ipjlib/include",
+    "-Ipjlib-util/include",
+    "-Ipjsip/include",
+    "-Ipjmedia/include",
+    "-Ipjnath/include"
+  ],
+  "files": {
+    "pjsip/src/pjsip/sip_auth_client.c": {
+      "vulnerable": [
+        "pj_memcpy\\( ha1, cred_info->data\\.ptr, cred_info->data\\.slen \\);"
+      ],
+      "fixed": [
+        "pj_memcpy\\( ha1, cred_info->data\\.ptr, digest_strlen \\);"
+      ]
+    }
+  }
+}

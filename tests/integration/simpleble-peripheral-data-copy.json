@@ -1,0 +1,35 @@
+{
+  "name": "simpleble-peripheral-data-copy",
+  "cve": "CVE-2026-44634",
+  "repo": "https://github.com/simpleble/simpleble.git",
+  "vulnerable": "2a9cbfb742c78fb79b85358a7c0a8efdd4252f94",
+  "fixed": "1501d59d76a4280268372afb1b157bf6caeacba6",
+  "fixed_note": "SimpleCBLE: clamp service and manufacturer data copies to the destination arrays (EVE-2026-002, EVE-2026-003)",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "mkdir -p build-raptor/export/simpleble build-raptor/export/simplecble && echo '#define SIMPLEBLE_EXPORT' > build-raptor/export/simpleble/export.h && echo '#define SIMPLECBLE_EXPORT' > build-raptor/export/simplecble/export.h"
+    ]
+  ],
+  "checker": "raptor.UseOfSourceSizeInCopy",
+  "args": [
+    "-std=c++17",
+    "-Isimpleble/include",
+    "-Isimplecble/include",
+    "-Idependencies/external",
+    "-Ibuild-raptor/export"
+  ],
+  "files": {
+    "simplecble/src/peripheral.cpp": {
+      "vulnerable": [
+        "memcpy\\(services->data, service\\.data\\(\\)\\.data\\(\\), service\\.data\\(\\)\\.size\\(\\)\\);",
+        "memcpy\\(manufacturer_data->data, selected_manufacturer_data\\.second\\.data\\(\\),$"
+      ],
+      "fixed": [
+        "memcpy\\(services->data, service\\.data\\(\\)\\.data\\(\\), copy_len\\);",
+        "memcpy\\(manufacturer_data->data, selected_manufacturer_data\\.second\\.data\\(\\), copy_len\\);"
+      ]
+    }
+  }
+}

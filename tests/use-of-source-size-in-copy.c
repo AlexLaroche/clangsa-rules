@@ -1199,3 +1199,103 @@ void f7() /* renamed: duplicate definition */
 	// ok: raptor-use-of-source-size-in-copy
 	memcpy(dest, src, 256);
 }
+
+// The length is the source's own size field, the destination a fixed
+// array (pjsip CVE-2026-40892, pjsip_auth_create_digest2:
+// `pj_memcpy(ha1, cred_info->data.ptr, cred_info->data.slen);` with
+// `char ha1[...]`; the only check, `PJ_ASSERT_RETURN(cred_info->data.slen >=
+// digest_strlen, ...)`, bounds it from below). pj_memcpy is an inline
+// wrapper of memcpy.
+typedef struct pj_str_t {
+	char *ptr;
+	long slen;
+} pj_str_t;
+typedef struct {
+	pj_str_t username;
+	pj_str_t data;
+} cred_info_t;
+static inline void *pj_memcpy(void *dst, const void *src, unsigned long size)
+{
+	return memcpy(dst, src, size);
+}
+int create_digest(const cred_info_t *cred_info, unsigned digest_strlen)
+{
+	char ha1[64];
+	if (!(cred_info->data.slen >= (long)digest_strlen))
+		return -1;
+	// ruleid: raptor-use-of-source-size-in-copy
+	pj_memcpy(ha1, cred_info->data.ptr, cred_info->data.slen);
+	return ha1[0];
+}
+// The fix: the destination's length.
+int create_digest_fixed(const cred_info_t *cred_info, unsigned digest_strlen)
+{
+	char ha1[64];
+	// ok: raptor-use-of-source-size-in-copy
+	pj_memcpy(ha1, cred_info->data.ptr, digest_strlen);
+	return ha1[0];
+}
+// Bounded from above first.
+int create_digest_checked(const cred_info_t *cred_info)
+{
+	char ha1[64];
+	if (cred_info->data.slen > (long)sizeof(ha1))
+		return -1;
+	// ok: raptor-use-of-source-size-in-copy
+	pj_memcpy(ha1, cred_info->data.ptr, cred_info->data.slen);
+	return ha1[0];
+}
+// A destination whose capacity is not known here (pj_strcpy's own body).
+void str_copy(pj_str_t *dst, const pj_str_t *src)
+{
+	// ok: raptor-use-of-source-size-in-copy
+	pj_memcpy(dst->ptr, src->ptr, src->slen);
+	dst->slen = src->slen;
+}
+
+// The size of the source object, copied into an object of the same type
+// (pjsip pjsip_auth_clt_set_prefs: `pj_memcpy(&sess->pref, p, sizeof(*p));`).
+typedef struct {
+	int initial_auth;
+	pj_str_t algorithm;
+} pref_t;
+typedef struct {
+	pref_t pref;
+} sess_t;
+void set_prefs(sess_t *sess, const pref_t *p)
+{
+	// ok: raptor-use-of-source-size-in-copy
+	pj_memcpy(&sess->pref, p, sizeof(*p));
+}
+
+// Filled by a parser given the limit (curl: `curlx_str_until(&p, &out,
+// MAX_OPTION_LEN, '=')` then `memcpy(tempword, out.str, out.len)`).
+struct Curl_str {
+	const char *str;
+	size_t len;
+};
+int str_until(const char **p, struct Curl_str *out, size_t max, char delim);
+int option(const char *p)
+{
+	struct Curl_str out;
+	if (!str_until(&p, &out, 64, '=')) {
+		char tempword[64 + 1];
+		// ok: raptor-use-of-source-size-in-copy
+		memcpy(tempword, out.str, out.len);
+		tempword[out.len] = 0;
+		return tempword[0];
+	}
+	return 0;
+}
+
+// A trailing one-element array: the object is allocated with room for the
+// data (curl `char user_hostname[1];` at the end of struct Curl_peer).
+struct peer {
+	int port;
+	char user_hostname[1];
+};
+void peer_fill(struct peer *peer, const struct Curl_str *host)
+{
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(peer->user_hostname, host->str, host->len);
+}

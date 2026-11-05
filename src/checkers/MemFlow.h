@@ -515,7 +515,7 @@ inline bool isSizeOf(llvm::StringRef Size, llvm::StringRef Ptr) {
   std::string S = Size.lower(), P = Ptr.lower();
   llvm::StringRef SR(S);
   // Not count or n: they count things (elements, references), not bytes.
-  if (raptor::isOneOf(SR, {"size", "len", "length", "nbytes", "used", "sz"}))
+  if (raptor::isOneOf(SR, {"size", "len", "length", "nbytes", "used", "sz", "slen"}))
     return true;
   std::vector<std::string> Stems{P};
   for (llvm::StringRef Suf :

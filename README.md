@@ -110,7 +110,9 @@ after a line matching `after` (a label, a function header).
 | `osslsigncode-message-digest` | CVE-2026-39853 | `raptor.WriteIntoStackBuffer` | osslsigncode `f90327d` → `cbee1e7` |
 | `editorconfig-glob-pattern-copy` | CVE-2026-40489 | `raptor.UnboundedCopyToStackArray` | editorconfig-core-c `b4724e4` → `5159be8` |
 | `sail-tga-raw-packet` | CVE-2026-40494 | `raptor.UncheckedCursorWrite` | SAIL `c930284` → `45d48d1` |
+| `pjsip-auth-digest-ha1-copy` | CVE-2026-40892 | `raptor.UseOfSourceSizeInCopy` | pjproject `97deb02` → `c82123e` |
 | `kissfft-fftndr-alloc` | CVE-2026-41445 | `raptor.UncheckedAllocProduct` | KissFFT `39c9781` → `8a8e66e` |
+| `simpleble-peripheral-data-copy` | CVE-2026-44634 | `raptor.UseOfSourceSizeInCopy` | SimpleBLE `2a9cbfb` → `1501d59` |
 | `libsixel-highcolor-alloc` | CVE-2026-44636 | `raptor.UncheckedAllocProduct` | libsixel `15c4c21` → `2d8c7b0` |
 | `libde265-image-plane-alloc` | CVE-2026-49346 | `raptor.UncheckedAllocProduct` | libde265 `56fb7b8` → `8a1b5cf` |
 | `freerdp-avc444-buffer-alloc` | CVE-2026-55191 | `raptor.UncheckedAllocProduct` | FreeRDP `3248c0c` → `97f40b9` |
@@ -156,7 +158,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.InsecureApiSprintfVsprintf**](src/checkers/InsecureApiSprintfVsprintf.cpp). Use of potentially insecure API functions `sprintf` and `vsprintf`.
 * [**raptor.InsecureApiScanf**](src/checkers/InsecureApiScanf.cpp). Use of potentially insecure API functions in the `scanf` family.
 * [**raptor.IncorrectUseOfStrncat**](src/checkers/IncorrectUseOfStrncat.cpp). Wrong size argument passed to `strncat`.
-* [**raptor.UseOfSourceSizeInCopy**](src/checkers/UseOfSourceSizeInCopy.cpp). Wrong size argument passed to `strncpy`, `memcpy`, `snprintf`, and variants.
+* [**raptor.UseOfSourceSizeInCopy**](src/checkers/UseOfSourceSizeInCopy.cpp). Wrong size argument passed to `strncpy`, `memcpy`, `snprintf`, and variants, or to thin wrappers defined in the translation unit (`pj_memcpy`): the size of the source (`sizeof(src)`, a source declared `src[n]` copied for `n`), or, into a destination of fixed capacity (an array, `&local`), the source's own length, a sibling size field or the container's size, with no upper bound on it before the copy. As in pjsip's `pjsip_auth_create_digest2` (CVE-2026-40892, `pj_memcpy(ha1, cred_info->data.ptr, cred_info->data.slen)`, checked only by `PJ_ASSERT_RETURN(cred_info->data.slen >= digest_strlen)`) and SimpleBLE's C bindings (CVE-2026-44634, `memcpy(services->data, service.data().data(), service.data().size())` into a 27-byte array). Upper bounds (`if (len > sizeof(dst)) return;`, an enclosing `if (len <= cap)`, `std::min`), objects filled by a call given a constant limit (`curlx_str_until(&p, &out, MAX, '=')`), trailing one-element arrays, `sizeof(*src)` into an object of the same type and destinations whose capacity is not known here are not reported.
 * [**raptor.IncorrectUseOfSizeof**](src/checkers/IncorrectUseOfSizeof.cpp). Accidental use of the `sizeof` operator on a pointer instead of its target.
 * [**raptor.UnterminatedStringStrncpy**](src/checkers/UnterminatedStringStrncpy.cpp). Lack of explicit NUL-termination after `strncpy` and `stpncpy`.
 * [**raptor.OffByOne**](src/checkers/OffByOne.cpp). Potential off-by-one error.
