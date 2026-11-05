@@ -349,6 +349,51 @@ int close_channel(CHANNEL *channel)
 	return 0;
 }
 
+// A release hook handed the address of what it releases (BIND 9
+// `zone->ops->plugins_free(zone->mctx, &zone->plugins)`): the memory
+// context is not released.
+typedef struct mem MEM;
+typedef struct {
+	void (*hooktable_free)(MEM *mctx, void **table);
+	void (*plugins_free)(MEM *mctx, void **plugins);
+} ZoneOps;
+typedef struct {
+	ZoneOps *ops;
+	MEM *mctx;
+	void *hooktable;
+	void *plugins;
+} Zone;
+void unload_plugins(Zone *zone)
+{
+	zone->ops->hooktable_free(zone->mctx, &zone->hooktable);
+	// ok: raptor-double-free
+	zone->ops->plugins_free(zone->mctx, &zone->plugins);
+}
+
+// A library destructor taking a pointer to the object pointer releases
+// *pp, and a call handed pp sets it again (BIND 9 `dns_difftuple_free(soatuplep)`
+// then `dns_difftuple_create(..., soatuplep)` in a loop).
+typedef struct tuple TUPLE;
+void tuple_free(TUPLE **tp);
+void tuple_create(int v, TUPLE **tp);
+int next_value(void);
+void keep_latest(TUPLE **soatuplep)
+{
+	int v;
+	while ((v = next_value()) != 0) {
+		if (*soatuplep != NULL)
+			// ok: raptor-double-free
+			tuple_free(soatuplep);
+		tuple_create(v, soatuplep);
+	}
+}
+void free_tuple_twice(TUPLE *t)
+{
+	tuple_free(&t);
+	// ok: raptor-double-free
+	tuple_free(&t);
+}
+
 int main()
 {
 	printf("Hello, World!");

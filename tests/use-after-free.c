@@ -510,6 +510,29 @@ int channel_close(CHANNEL *channel)
 	return rc;
 }
 
+// A per-type destructor reached through the object itself
+// (BIND 9 `obj->type->rep->free(obj)`) releases what the object holds;
+// the object is put back afterwards.
+struct cfg_obj;
+typedef struct {
+	void (*free)(struct cfg_obj *obj);
+} Rep;
+typedef struct {
+	Rep *rep;
+} CfgType;
+struct cfg_obj {
+	CfgType *type;
+	unsigned magic;
+};
+void mem_put(void *p, unsigned long size);
+void destroy_cfgobj(struct cfg_obj *obj)
+{
+	obj->type->rep->free(obj);
+	// ok: raptor-use-after-free
+	obj->magic = 0;
+	mem_put(obj, sizeof(*obj));
+}
+
 int main()
 {
 	printf("Hello, World!");

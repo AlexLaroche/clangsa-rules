@@ -124,11 +124,20 @@ inline const clang::Expr *releasedArg(const clang::CallExpr *CE, int Depth = 2,
         if (isAddr(A))
           return nullptr;
       const Expr *P = onlyPointer([](const Expr *) { return false; });
+      // `dns_difftuple_free(tp)` with tp a pointer to the object pointer:
+      // like `x_free(&t)`, it releases (and clears) *tp, not tp.
+      auto isObjPtrPtr = [](const Expr *A) {
+        QualType T = A->IgnoreParenImpCasts()->getType();
+        if (!T->isPointerType() || !T->getPointeeType()->isPointerType())
+          return false;
+        QualType O = T->getPointeeType()->getPointeeType();
+        return O->isRecordType() || O->isIncompleteType();
+      };
       // Defined here: a release only if the body releases that parameter
       // (curl's Curl_bufref_free(br) frees br->ptr, not br).
       const FunctionDecl *Def = nullptr;
       if (!P || !CE->getDirectCallee()->hasBody(Def))
-        return Named ? P : nullptr;
+        return Named && P && !isObjPtrPtr(P) ? P : nullptr;
       if (Depth <= 0)
         return nullptr;
       unsigned I = 0;
@@ -171,11 +180,30 @@ inline const clang::Expr *releasedArg(const clang::CallExpr *CE, int Depth = 2,
         L.ends_with_insensitive("dealloc")) ||
       L.ends_with_insensitive("freep"))
     return nullptr;
+  // `zone->ops->plugins_free(zone->mctx, &zone->plugins)`: a hook handed the
+  // address of something outside its own object releases that, through it.
+  if (!Base.empty())
+    for (const Expr *A : CE->arguments())
+      if (isAddr(A)) {
+        std::string K = keyOf(
+            cast<UnaryOperator>(raptor::strip(A))->getSubExpr());
+        llvm::StringRef KR(K);
+        llvm::StringRef BR(Base);
+        if (!K.empty() && KR != BR && !KR.starts_with(Base + "->") &&
+            !KR.starts_with(Base + ".") &&
+            !BR.starts_with(K + "->") && !BR.starts_with(K + "."))
+          return nullptr;
+      }
   return onlyPointer([&](const Expr *A) {
     if (Base.empty())
       return false;
-    llvm::StringRef K = keyOf(A);
-    return K == Base || K.starts_with(Base + "->") || K.starts_with(Base + ".");
+    std::string K = keyOf(A);
+    llvm::StringRef KR(K);
+    // `obj->type->rep->free(obj)`: a per-type method of the object
+    // releases what the object holds.
+    return KR == Base || KR.starts_with(Base + "->") ||
+           KR.starts_with(Base + ".") ||
+           (!K.empty() && llvm::StringRef(Base).starts_with(K + "->"));
   });
 }
 
