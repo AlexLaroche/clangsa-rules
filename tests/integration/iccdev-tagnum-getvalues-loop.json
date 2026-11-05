@@ -1,0 +1,19 @@
+{
+  "name": "iccdev-tagnum-getvalues-loop",
+  "cve": "CVE-2026-30987",
+  "repo": "https://github.com/InternationalColorConsortium/iccDEV",
+  "vulnerable": "04025bd42c7a9c92a26d6be9306a9662214f009b",
+  "fixed": "73ae1f58f1507be073bb6943f7f237c4baa3c25f",
+  "fixed_note": "CIccTagNum::GetValues: reject nVectorSize > m_nSize and loop to nVectorSize",
+  "checker": "raptor.LoopBoundIgnoresCapacityParam",
+  "args": [
+    "-std=c++17",
+    "-IIccProfLib"
+  ],
+  "files": {
+    "IccProfLib/IccTagBasic.cpp": [
+      "^        DstVector\\[i\\] = icU8toF\\(\\(icUInt8Number\\)\\(m_Num\\[i\\+nStart\\]\\)\\);$",
+      "^        DstVector\\[i\\] = icU16toF\\(\\(icUInt16Number\\)\\(m_Num\\[i\\+nStart\\]\\)\\);$"
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "iccdev-floatnum-getvalues-loop",
+  "cve": "CVE-2026-25584",
+  "repo": "https://github.com/InternationalColorConsortium/iccDEV",
+  "vulnerable": "ba81cd94b9c82b1d3905d45427badbd9d8adfa15",
+  "fixed": "c9cb108f58683bd87afca616dea3e4cdb884c23f",
+  "fixed_note": "CIccTagFloatNum::GetValues: loop to the caller's nVectorSize, not m_nSize",
+  "checker": "raptor.LoopBoundIgnoresCapacityParam",
+  "args": [
+    "-std=c++17",
+    "-IIccProfLib"
+  ],
+  "files": {
+    "IccProfLib/IccTagBasic.cpp": [
+      "^    DstVector\\[i\\] = \\(icFloatNumber\\)m_Num\\[i\\+nStart\\];$"
+    ]
+  }
+}
