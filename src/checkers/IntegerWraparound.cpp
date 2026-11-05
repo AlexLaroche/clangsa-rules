@@ -15,12 +15,28 @@ using namespace ast_matchers;
 
 namespace {
 bool isOneOfOp(BinaryOperatorKind K);
-bool isMulOrAdd(const Expr *E) {
+// A `*` or `+` (or `*=`, `+=`) that can wrap: the operands' value widths
+// (raptor::valueBits) do not fit the result type, so `CARD8 + 1` or
+// `min(n, 6) + 1` do not count.
+bool isMulOrAdd(const Expr *E, const ASTContext &Ctx) {
   E = E->IgnoreParenImpCasts();
-  if (const auto *BO = dyn_cast<BinaryOperator>(E)) // includes `*=` and `+=`
-    return isOneOfOp(BO->getOpcode()) || BO->getOpcode() == BO_MulAssign ||
-           BO->getOpcode() == BO_AddAssign;
-  return false;
+  const auto *BO = dyn_cast<BinaryOperator>(E);
+  if (!BO)
+    return false;
+  if (BO->getOpcode() == BO_MulAssign || BO->getOpcode() == BO_AddAssign)
+    return true;
+  if (!isOneOfOp(BO->getOpcode()))
+    return false;
+  QualType T = BO->getType();
+  // Size arithmetic (size_t) keeps the plain syntactic rule: it wraps on
+  // 32-bit targets, and a negative int operand converts to a huge value.
+  if (T.isNull() || T->isDependentType() || !T->isIntegerType() ||
+      Ctx.getIntWidth(T) > 32)
+    return true;
+  unsigned W = Ctx.getIntWidth(T) - (T->isSignedIntegerType() ? 1 : 0);
+  unsigned L = raptor::valueBits(BO->getLHS(), Ctx),
+           R = raptor::valueBits(BO->getRHS(), Ctx);
+  return (BO->getOpcode() == BO_Mul ? L + R : std::max(L, R) + 1) > W;
 }
 
 bool isOneOfOp(BinaryOperatorKind K) { return K == BO_Mul || K == BO_Add; }
@@ -76,7 +92,7 @@ class IntegerWraparoundChecker : public Checker<check::ASTCodeBody> {
                       .bind("assign");
     for (const BoundNodes &N : match(findAll(Assign), *D->getBody(), Ctx)) {
       const auto *BO = N.getNodeAs<BinaryOperator>("assign");
-      if ((BO->getOpcode() == BO_Assign && isMulOrAdd(BO->getRHS())) ||
+      if ((BO->getOpcode() == BO_Assign && isMulOrAdd(BO->getRHS(), Ctx)) ||
           BO->getOpcode() == BO_MulAssign || BO->getOpcode() == BO_AddAssign)
         Computed[N.getNodeAs<VarDecl>("v")].push_back(BO->getBeginLoc());
     }
@@ -86,7 +102,7 @@ class IntegerWraparoundChecker : public Checker<check::ASTCodeBody> {
       // hasInitializer() also matches a redeclaration (e.g. a block-scope
       // `extern T x;`) whose initializer is on another declaration; such a
       // VarDecl has no initializer of its own.
-      if (VD->getInit() && isMulOrAdd(VD->getInit()))
+      if (VD->getInit() && isMulOrAdd(VD->getInit(), Ctx))
         Computed[VD].push_back(VD->getBeginLoc());
     }
 
@@ -98,7 +114,7 @@ class IntegerWraparoundChecker : public Checker<check::ASTCodeBody> {
         if (I >= CE->getNumArgs())
           continue;
         const Expr *A = CE->getArg(I);
-        if (isMulOrAdd(A)) {
+        if (isMulOrAdd(A, Ctx)) {
           Bad = true;
           break;
         }

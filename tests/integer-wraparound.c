@@ -374,3 +374,33 @@ void *uses_block_scope_extern(void)
 	// ok: raptor-integer-wraparound
 	return malloc((size_t)redeclared_count);
 }
+
+// Sums and products in int that cannot wrap: the operands' value widths fit the
+// type (X.Org XkbAllocNames `calloc(xkb->max_key_code + 1, ...)` with a CARD8
+// key code; dri2 `calloc(min(count, DRI2BufferHiz) + 1, ...)`).
+typedef struct {
+	unsigned char min_key_code, max_key_code;
+} Xkb;
+#define min(a, b) ((a) < (b) ? (a) : (b))
+void *narrow_operands(Xkb *xkb, int count, unsigned short w, unsigned short h)
+{
+	// ok: raptor-integer-wraparound
+	void *a = calloc(xkb->max_key_code + 1, 8);
+	// ok: raptor-integer-wraparound
+	void *b = calloc(min(count, 6) + 1, sizeof(void *));
+	// ok: raptor-integer-wraparound
+	void *c = malloc((unsigned)w * h);
+	free(a);
+	free(b);
+	return c;
+}
+// Full-width operands still wrap.
+void *wide_operands(unsigned count, unsigned w, unsigned h)
+{
+	// ruleid: raptor-integer-wraparound
+	void *a = calloc(count + 1, 8);
+	// ruleid: raptor-integer-wraparound
+	void *b = malloc(min(count, w) * h);
+	free(a);
+	return b;
+}

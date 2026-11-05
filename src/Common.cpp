@@ -55,6 +55,30 @@ const Expr *raptor::strip(const Expr *E) {
   return E ? E->IgnoreParenCasts() : nullptr;
 }
 
+namespace {
+// The same variable, field or constant, parentheses and implicit casts aside
+// at every level (macro arguments put them inside the casts).
+bool sameOperand(const clang::Expr *A, const clang::Expr *B,
+                 const clang::ASTContext &Ctx) {
+  using namespace clang;
+  A = A->IgnoreParenImpCasts();
+  B = B->IgnoreParenImpCasts();
+  if (const auto *DA = dyn_cast<DeclRefExpr>(A))
+    if (const auto *DB = dyn_cast<DeclRefExpr>(B))
+      return DA->getDecl() == DB->getDecl();
+  if (const auto *MA = dyn_cast<MemberExpr>(A))
+    if (const auto *MB = dyn_cast<MemberExpr>(B))
+      return MA->getMemberDecl() == MB->getMemberDecl() &&
+             MA->isArrow() == MB->isArrow() &&
+             sameOperand(MA->getBase(), MB->getBase(), Ctx);
+  Expr::EvalResult RA, RB;
+  if (!A->isValueDependent() && !B->isValueDependent() &&
+      A->EvaluateAsInt(RA, Ctx) && B->EvaluateAsInt(RB, Ctx))
+    return llvm::APSInt::isSameValue(RA.Val.getInt(), RB.Val.getInt());
+  return false;
+}
+} // namespace
+
 unsigned raptor::valueBits(const clang::Expr *E, const clang::ASTContext &Ctx) {
   using namespace clang;
   E = E->IgnoreParens();
@@ -70,6 +94,10 @@ unsigned raptor::valueBits(const clang::Expr *E, const clang::ASTContext &Ctx) {
         ICE->getCastKind() == CK_NoOp)
       return valueBits(ICE->getSubExpr(), Ctx);
   }
+  if (const auto *CE = dyn_cast<ExplicitCastExpr>(E);
+      CE && CE->getCastKind() == CK_IntegralCast && CE->getType()->isIntegerType())
+    return std::min(valueBits(CE->getSubExpr(), Ctx),
+                    Ctx.getIntWidth(CE->getType()));
   if (const auto *ME = dyn_cast<MemberExpr>(E))
     if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl());
         FD && FD->isBitField())
@@ -92,9 +120,20 @@ unsigned raptor::valueBits(const clang::Expr *E, const clang::ASTContext &Ctx) {
       break;
     }
   }
-  if (const auto *CO = dyn_cast<ConditionalOperator>(E))
+  if (const auto *CO = dyn_cast<ConditionalOperator>(E)) {
+    // `a < b ? a : b`, `a > b ? b : a`: a minimum is no wider than either.
+    if (const auto *C = dyn_cast<BinaryOperator>(CO->getCond()->IgnoreParens());
+        C && C->isRelationalOp()) {
+      const Expr *Lo = CO->getTrueExpr(), *Hi = CO->getFalseExpr();
+      if (C->getOpcode() == BO_GT || C->getOpcode() == BO_GE)
+        std::swap(Lo, Hi);
+      if (sameOperand(C->getLHS(), Lo, Ctx) &&
+          sameOperand(C->getRHS(), Hi, Ctx))
+        return std::min(valueBits(Lo, Ctx), valueBits(Hi, Ctx));
+    }
     return std::max(valueBits(CO->getTrueExpr(), Ctx),
                     valueBits(CO->getFalseExpr(), Ctx));
+  }
   QualType T = E->getType();
   if (T.isNull() || T->isDependentType() || !T->isIntegerType())
     return 0;
