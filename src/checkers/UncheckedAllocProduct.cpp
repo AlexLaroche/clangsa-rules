@@ -31,6 +31,7 @@
 #include "Common.h"
 #include "MemFlow.h"
 #include "Registry.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
@@ -120,7 +121,113 @@ const Expr *loopCond(const Stmt *S) {
   return nullptr;
 }
 
+using FieldSet = std::set<const FieldDecl *>;
+
+// The fields among the factors of a `*` chain (casts and parentheses aside);
+// false when a non-constant factor is not a field.
+bool factorFields(const Expr *E, const ASTContext &Ctx, FieldSet &Out) {
+  E = E->IgnoreParenCasts();
+  if (const auto *BO = dyn_cast<BinaryOperator>(E);
+      BO && BO->getOpcode() == BO_Mul)
+    return factorFields(BO->getLHS(), Ctx, Out) &&
+           factorFields(BO->getRHS(), Ctx, Out);
+  if (!E->isValueDependent() && E->isIntegerConstantExpr(Ctx))
+    return true;
+  if (const auto *ME = dyn_cast<MemberExpr>(E))
+    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+      Out.insert(FD);
+      return true;
+    }
+  return false;
+}
+
+// Where the file validates fields where it sets them: in a function that
+// assigns the fields, a relational check with a division on them (OpenJPEG
+// opj_j2k_read_siz `l_cp->tw = ...; if (l_cp->tw > 65535 / l_cp->th)`), or
+// their product computed in 64 bits (libtiff LERC SetupBuffers
+// `(uint64_t)sp->segment_width * sp->segment_height`, then checked). A check
+// in a function that only reads the fields does not protect other paths.
+struct FileGuards {
+  std::vector<FieldSet> Sets;
+  bool covers(const FieldSet &F) const {
+    for (const FieldSet &S : Sets)
+      if (std::includes(S.begin(), S.end(), F.begin(), F.end()))
+        return true;
+    return false;
+  }
+};
+// A product computed in 64 bits from the start: no narrower `*` inside.
+bool wideFromStart(const Expr *E, const ASTContext &Ctx) {
+  E = E->IgnoreParenImpCasts();
+  const auto *BO = dyn_cast<BinaryOperator>(E);
+  if (!BO || BO->getOpcode() != BO_Mul)
+    return true;
+  QualType T = BO->getType();
+  return T->isIntegerType() && !T->isDependentType() &&
+         Ctx.getIntWidth(T) >= 64 && wideFromStart(BO->getLHS(), Ctx) &&
+         wideFromStart(BO->getRHS(), Ctx);
+}
+class GuardCollector : public RecursiveASTVisitor<GuardCollector> {
+public:
+  GuardCollector(const ASTContext &Ctx, FileGuards &G) : Ctx(Ctx), G(G) {}
+  bool VisitFunctionDecl(FunctionDecl *FD) {
+    const Stmt *Body = FD->doesThisDeclarationHaveABody() ? FD->getBody() : nullptr;
+    if (!Body)
+      return true;
+    FieldSet Assigned;
+    std::vector<FieldSet> Cands;
+    walk(Body, [&](const Stmt *S) {
+      const auto *BO = dyn_cast<BinaryOperator>(S);
+      if (!BO)
+        return;
+      if (BO->isAssignmentOp())
+        if (const auto *ME = dyn_cast<MemberExpr>(raptor::strip(BO->getLHS())))
+          if (const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+            Assigned.insert(F);
+      if (BO->isRelationalOp()) {
+        bool Div = false;
+        FieldSet F;
+        walk(BO, [&](const Stmt *X) {
+          if (const auto *D = dyn_cast<BinaryOperator>(X);
+              D && D->getOpcode() == BO_Div)
+            Div = true;
+          if (const auto *ME = dyn_cast<MemberExpr>(X))
+            if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+              F.insert(FD);
+        });
+        if (Div && F.size() >= 2)
+          Cands.push_back(std::move(F));
+      } else if (BO->getOpcode() == BO_Mul && !BO->isValueDependent() &&
+                 wideFromStart(BO, Ctx)) {
+        FieldSet F;
+        if (factorFields(BO, Ctx, F) && F.size() >= 2)
+          Cands.push_back(std::move(F));
+      }
+    });
+    for (FieldSet &F : Cands)
+      if (std::includes(Assigned.begin(), Assigned.end(), F.begin(), F.end()))
+        G.Sets.push_back(std::move(F));
+    return true;
+  }
+
+private:
+  const ASTContext &Ctx;
+  FileGuards &G;
+};
+
 class UncheckedAllocProductChecker : public Checker<check::ASTCodeBody> {
+  mutable const TranslationUnitDecl *GuardsTU = nullptr;
+  mutable FileGuards Guards;
+
+  const FileGuards &fileGuards(ASTContext &Ctx) const {
+    if (GuardsTU != Ctx.getTranslationUnitDecl()) {
+      GuardsTU = Ctx.getTranslationUnitDecl();
+      Guards = FileGuards();
+      GuardCollector(Ctx, Guards).TraverseDecl(Ctx.getTranslationUnitDecl());
+    }
+    return Guards;
+  }
+
 public:
   void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr,
                         BugReporter &BR) const {
@@ -226,6 +333,10 @@ public:
             if (L.empty() || R.empty() || constant(Mul->getLHS()) ||
                 constant(Mul->getRHS()) ||
                 guarded(Body, CE, Mul, L, R, Seen, Ctx))
+              continue;
+            // Field factors validated elsewhere in the file.
+            if (FieldSet F; factorFields(Mul, Ctx, F) && F.size() >= 2 &&
+                            fileGuards(Ctx).covers(F))
               continue;
             raptor::reportAt(
                 BR, this, "Unchecked allocation product",

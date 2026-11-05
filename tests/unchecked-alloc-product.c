@@ -330,3 +330,44 @@ unsigned char *plane(uint32_t width, uint32_t height, int depth) {
   // ok: raptor-unchecked-alloc-product
   return malloc((size_t)height * bpl + 64);
 }
+
+// Fields validated elsewhere in the file: a division check when the header is
+// parsed (OpenJPEG opj_j2k_read_siz `if (l_cp->tw > 65535 / l_cp->th)`), or
+// the same product computed in 64 bits and checked (libtiff LERC
+// SetupBuffers `(uint64_t)sp->segment_width * sp->segment_height`), in the
+// function that sets them. A check in a function that only reads them does
+// not count (CVE-2016-9118 above: the fix's check does not cover the
+// vulnerable function).
+typedef struct {
+	uint32_t tw, th;
+	uint32_t seg_w, seg_h;
+	uint32_t other_w, other_h;
+} Cp;
+int read_header(Cp *cp, const uint32_t *hdr)
+{
+	cp->tw = hdr[0];
+	cp->th = hdr[1];
+	cp->seg_w = hdr[2];
+	cp->seg_h = hdr[3];
+	if (cp->tw == 0 || cp->th == 0 || cp->tw > 65535 / cp->th)
+		return 0;
+	uint64_t full = (uint64_t)cp->seg_w * cp->seg_h;
+	if ((uint32_t)full != full)
+		return 0;
+	return 1;
+}
+void *alloc_tiles(Cp *cp)
+{
+	// ok: raptor-unchecked-alloc-product
+	return calloc(cp->tw * cp->th, 16);
+}
+void *alloc_segment(Cp *cp)
+{
+	// ok: raptor-unchecked-alloc-product
+	return malloc(cp->seg_w * cp->seg_h);
+}
+void *alloc_other(Cp *cp)
+{
+	// ruleid: raptor-unchecked-alloc-product
+	return malloc(cp->other_w * cp->other_h);
+}
