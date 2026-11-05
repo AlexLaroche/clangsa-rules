@@ -21,7 +21,9 @@
 // keeps the pair's invariant) or a capacity field; a function that compares
 // a capacity field with anything, directly or through a local set from it
 // (`for (j = 7; j < value->len; j++) len++;`, `if (n > c->bmpSize)`); a
-// capacity field set from the slice.
+// capacity field set from the slice; a size taken from another field of
+// the object holding the buffer (`r->base = b->base; r->length =
+// b->current;`): that object keeps its own bookkeeping within its capacity.
 //
 // CVE-2026-111381 (FreeRDP persistent cache v2 parser).
 #include "Common.h"
@@ -155,6 +157,10 @@ public:
           continue;
         if (sanitized(Size, Caps, Defs, Compares, FieldAssigns))
           continue;
+        // Taken from the owner's own bookkeeping (`r->length = b->current`
+        // for b->base): the owner keeps it within its capacity.
+        if (fromOwner(Size, Buf, Defs))
+          continue;
         raptor::reportAt(BR, this, "Size field ignores capacity",
                          "'" + raptor_mem::keyOf(SizeME) + "' describes '" +
                              raptor_mem::keyOf(Buf) + "', whose capacity is '" + *Caps.begin() +
@@ -198,6 +204,20 @@ private:
       }
     }
     return Best;
+  }
+
+  // Does the slice of Size use another part of the object holding Buf?
+  static bool fromOwner(const Expr *Size, const MemberExpr *Buf, const DefMap &Defs) {
+    std::string Owner = raptor_mem::keyOf(Buf->getBase());
+    std::string BufK = raptor_mem::keyOf(Buf);
+    if (Owner.empty())
+      return false;
+    for (const std::string &K : slice(Size, Defs)) {
+      llvm::StringRef KR(K);
+      if (K != BufK && (KR.starts_with(Owner + "->") || KR.starts_with(Owner + ".")))
+        return true;
+    }
+    return false;
   }
 
   static Keys slice(const Expr *E, const DefMap &Defs) {

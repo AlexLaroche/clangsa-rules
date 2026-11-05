@@ -231,3 +231,38 @@ void capture_var(const Str *s, Str *vv) {
   // ok: raptor-size-field-ignores-capacity
   vv->len = caps[1] - caps[0];
 }
+
+// The size is the buffer owner's own bookkeeping (another field of the
+// object holding the buffer and its capacity, which that object keeps
+// within its capacity): BIND 9 `r->base = b->base; r->length = b->current;`,
+// HAProxy `ctx.key = key->area; ctx.key_length = key->data;`.
+typedef struct {
+  unsigned char *base;
+  unsigned int length;
+  unsigned int current;
+  unsigned int used;
+} Buffer;
+typedef struct {
+  unsigned char *base;
+  unsigned int length;
+} Region;
+unsigned int buffer_consumed(Buffer *b);
+void consumed_region(Buffer *b, Region *r) {
+  r->base = b->base;
+  // ok: raptor-size-field-ignores-capacity
+  r->length = b->current;
+}
+typedef struct {
+  Buffer *pushback;
+  unsigned int ignored;
+} Source;
+void pushback_region(Source *source, Region *r) {
+  r->base = source->pushback->base + source->ignored;
+  // ok: raptor-size-field-ignores-capacity
+  r->length = buffer_consumed(source->pushback) - source->ignored;
+}
+void other_region(Buffer *b, Buffer *other, Region *r) {
+  r->base = b->base;
+  // ruleid: raptor-size-field-ignores-capacity
+  r->length = other->current;
+}
