@@ -11,7 +11,8 @@
 // 64-bit type, constant factors included; an implicit conversion of a
 // product of two run-time values to a 64-bit variable or field in an
 // initialisation or an assignment. The operands' value widths must add up to
-// more than the product's (raptor::valueBits). Products widened before the
+// more than the product's (raptor::valueBits; a local never modified after
+// its initialisation is as wide as its initialiser). Products widened before the
 // multiplication (`(uint64_t) w * 3`) are 64-bit and do not match; neither
 // do products guarded by a division check on a factor (`a > UINT32_MAX / b`)
 // or an overflow helper (`__builtin_mul_overflow`).
@@ -42,9 +43,44 @@ bool isConst(const Expr *E, const ASTContext &Ctx) {
          E->IgnoreParenImpCasts()->isIntegerConstantExpr(Ctx);
 }
 
+using VarSet = std::set<const VarDecl *>;
+
+// The value width of E; a local never modified after its initialisation
+// (`int spp = img->samplesperpixel;`) is as wide as its initialiser.
+unsigned bits(const Expr *E, const ASTContext &Ctx, const VarSet &Modified) {
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts()))
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+        VD && VD->hasLocalStorage() && !isa<ParmVarDecl>(VD) &&
+        VD->getInit() && !Modified.count(VD))
+      return std::min(raptor::valueBits(E, Ctx),
+                      raptor::valueBits(VD->getInit(), Ctx));
+  return raptor::valueBits(E, Ctx);
+}
+
+// Locals assigned, incremented or whose address is taken after their
+// declaration.
+VarSet modifiedLocals(const Stmt *Body) {
+  VarSet M;
+  auto add = [&](const Expr *E) {
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenCasts()))
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+        M.insert(VD);
+  };
+  walk(Body, [&](const Stmt *S) {
+    if (const auto *BO = dyn_cast<BinaryOperator>(S);
+        BO && BO->isAssignmentOp())
+      add(BO->getLHS());
+    else if (const auto *UO = dyn_cast<UnaryOperator>(S);
+             UO && (UO->isIncrementDecrementOp() ||
+                    UO->getOpcode() == UO_AddrOf))
+      add(UO->getSubExpr());
+  });
+  return M;
+}
+
 // A `*` computed in at most 32 bits whose operands can overflow it.
 const BinaryOperator *narrowMul(const Expr *E, const ASTContext &Ctx,
-                                bool AllowConst) {
+                                bool AllowConst, const VarSet &Modified) {
   const auto *BO = dyn_cast<BinaryOperator>(E->IgnoreParens());
   if (!BO || BO->getOpcode() != BO_Mul)
     return nullptr;
@@ -55,8 +91,7 @@ const BinaryOperator *narrowMul(const Expr *E, const ASTContext &Ctx,
   if ((CL && CR) || (!AllowConst && (CL || CR)))
     return nullptr;
   unsigned W = Ctx.getIntWidth(T) - (T->isSignedIntegerType() ? 1 : 0);
-  if (raptor::valueBits(BO->getLHS(), Ctx) +
-          raptor::valueBits(BO->getRHS(), Ctx) <=
+  if (bits(BO->getLHS(), Ctx, Modified) + bits(BO->getRHS(), Ctx, Modified) <=
       W)
     return nullptr;
   return BO;
@@ -69,13 +104,15 @@ bool wide(QualType T, const ASTContext &Ctx) {
 
 class Visitor : public RecursiveASTVisitor<Visitor> {
 public:
-  Visitor(const ASTContext &Ctx, std::vector<const BinaryOperator *> &Out)
-      : Ctx(Ctx), Out(Out) {}
+  Visitor(const ASTContext &Ctx, std::vector<const BinaryOperator *> &Out,
+          const VarSet &Modified)
+      : Ctx(Ctx), Out(Out), Modified(Modified) {}
 
   bool VisitExplicitCastExpr(ExplicitCastExpr *CE) {
     if (wide(CE->getType(), Ctx))
       if (const BinaryOperator *M =
-              narrowMul(CE->getSubExpr()->IgnoreParenImpCasts(), Ctx, true))
+              narrowMul(CE->getSubExpr()->IgnoreParenImpCasts(), Ctx, true,
+                        Modified))
         Out.push_back(M);
     return true;
   }
@@ -85,7 +122,7 @@ public:
     const auto *ICE = dyn_cast<ImplicitCastExpr>(E->IgnoreParens());
     if (!ICE || ICE->getCastKind() != CK_IntegralCast)
       return;
-    if (const BinaryOperator *M = narrowMul(ICE->getSubExpr(), Ctx, false))
+    if (const BinaryOperator *M = narrowMul(ICE->getSubExpr(), Ctx, false, Modified))
       Out.push_back(M);
   }
   bool VisitBinaryOperator(BinaryOperator *BO) {
@@ -103,6 +140,7 @@ public:
 private:
   const ASTContext &Ctx;
   std::vector<const BinaryOperator *> &Out;
+  const VarSet &Modified;
 };
 
 // A division check or an overflow helper on a factor of M.
@@ -146,7 +184,8 @@ public:
       return;
     ASTContext &Ctx = Mgr.getASTContext();
     std::vector<const BinaryOperator *> Found;
-    Visitor V(Ctx, Found);
+    VarSet Modified = modifiedLocals(Body);
+    Visitor V(Ctx, Found, Modified);
     V.TraverseStmt(const_cast<Stmt *>(Body));
     std::set<const BinaryOperator *> Seen;
     for (const BinaryOperator *M : Found) {

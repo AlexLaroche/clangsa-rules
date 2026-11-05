@@ -93,3 +93,25 @@ uint32_t same_width(uint32_t a, uint32_t b)
 	uint32_t n = a * b;
 	return n;
 }
+
+// A local copy of a narrow field, never modified: as narrow as the field
+// (libtiff put16bitbwtile `int samplesperpixel = img->samplesperpixel;` then
+// `(tmsize_t)(2 * samplesperpixel)`).
+typedef struct {
+	uint16_t samplesperpixel;
+	uint32_t width;
+} Img;
+int64_t local_copy(const Img *img)
+{
+	int samplesperpixel = img->samplesperpixel;
+	// ok: raptor-narrow-product-widened
+	int64_t a = (int64_t)(2 * samplesperpixel);
+	int width = img->width;
+	// ruleid: raptor-narrow-product-widened
+	int64_t b = (int64_t)(4 * width);
+	int spp = img->samplesperpixel;
+	spp <<= 16;
+	// ruleid: raptor-narrow-product-widened
+	int64_t c = (int64_t)(spp * 3);
+	return a + b + c;
+}
