@@ -1,0 +1,18 @@
+{
+  "name": "iccdev-sparse-matrix-needed-size",
+  "cve": "CVE-2026-21486",
+  "repo": "https://github.com/InternationalColorConsortium/iccDEV",
+  "vulnerable": "3942df50d47cb65110cd3612795d6b16346fcff4",
+  "fixed": "1ab7363f38a20089934d3410c88f714eea392bf5",
+  "fixed_note": "CIccTagSparseMatrixArray: bytes per matrix and needed size in 64 bits",
+  "checker": "raptor.NarrowProductWidened",
+  "args": [
+    "-std=c++17",
+    "-IIccProfLib"
+  ],
+  "files": {
+    "IccProfLib/IccTagBasic.cpp": [
+      "^  icUInt64Number nNeededSize = nBytesPerMatrix \\* nNumMatrices;$"
+    ]
+  }
+}

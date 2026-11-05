@@ -1,0 +1,32 @@
+{
+  "name": "openexr-pxr24-widened-product",
+  "cve": "CVE-2026-34588",
+  "repo": "https://github.com/AcademySoftwareFoundation/openexr.git",
+  "vulnerable": "881b546bfb100d8588401d0b087a2d47d55e9862",
+  "fixed": "a5e5a2eba975b57f77e1c6b6d22ecc49553624e2",
+  "fixed_note": "internal_pxr24: widen w before multiplying in the FLOAT bounds check and offsets",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "mkdir -p build-raptor/stub && printf '#define OPENEXR_VERSION_MAJOR 3\\n#define OPENEXR_VERSION_MINOR 4\\n#define OPENEXR_VERSION_PATCH 0\\n#define OPENEXR_EXPORT\\n#define OPENEXR_HIDDEN\\n' > build-raptor/stub/OpenEXRConfig.h && : > build-raptor/stub/IlmThreadConfig.h && : > build-raptor/stub/ImathConfig.h"
+    ]
+  ],
+  "checker": "raptor.NarrowProductWidened",
+  "args": [
+    "-Isrc/lib/OpenEXRCore",
+    "-Ibuild-raptor/stub"
+  ],
+  "files": {
+    "src/lib/OpenEXRCore/internal_pxr24.c": {
+      "vulnerable": [
+        "if \\(nDec \\+ \\(uint64_t\\) \\(w \\* 3\\) > outSize\\)",
+        "nDec \\+= \\(uint64_t\\) \\(w \\* 3\\);"
+      ],
+      "fixed": [
+        "if \\(nDec \\+ \\(uint64_t\\) w \\* 3 > outSize\\)",
+        "nDec \\+= \\(uint64_t\\) w \\* 3;"
+      ]
+    }
+  }
+}
