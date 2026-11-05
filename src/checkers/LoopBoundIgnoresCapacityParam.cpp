@@ -11,7 +11,8 @@
 // check before the loop that bounds B by C on the path that goes on
 // (`if (B > C) return;`, `if (B <= C) { loop }`), or a clamp (`if (B > C) B =
 // C;`, an assignment of B from an expression with C); read-only buffers; no
-// capacity parameter.
+// capacity parameter; a bound that is the buffer's own count parameter
+// (`nmatch` for `pmatch[]`, `nendpoints` for `endpoints`).
 //
 // CVE-2026-25584 (iccDEV CIccTagFloatNum::GetValues), CVE-2026-30987 (iccDEV
 // CIccTagNum::GetValues), CVE-2026-29068 (pjsip opus codec_parse).
@@ -32,6 +33,17 @@ bool sizeName(StringRef N) {
     if (L.find(W) != std::string::npos)
       return true;
   return false;
+}
+
+// Does a count parameter's name name the buffer (`nendpoints` and
+// `endpoints`, `nmatch` and `pmatch`: a shared tail of 4 or more letters)?
+bool countOf(StringRef Count, StringRef Buf) {
+  std::string C = Count.lower(), B = Buf.lower();
+  size_t K = 0;
+  while (K < C.size() && K < B.size() &&
+         C[C.size() - 1 - K] == B[B.size() - 1 - K])
+    ++K;
+  return K >= 4;
 }
 
 bool mentions(const Stmt *S, const std::set<const ValueDecl *> &Ds) {
@@ -149,6 +161,14 @@ public:
       });
       if (!W)
         return;
+      // The bound is the buffer's own count parameter (`nmatch` for
+      // `pmatch[]`, `nendpoints` for `endpoints`): another size parameter
+      // describes something else.
+      if (const auto *BP = dyn_cast_or_null<ParmVarDecl>(refDecl(B));
+          BP && BP->getType()->isIntegerType() && BP->getIdentifier())
+        if (const auto *DP = dyn_cast_or_null<ParmVarDecl>(refDecl(W->getBase()));
+            DP && DP->getIdentifier() && countOf(BP->getName(), DP->getName()))
+          return;
       // An exit on the capacity inside the loop.
       bool Guard = false;
       forEach<IfStmt>(LoopBody, [&](const IfStmt *If) {

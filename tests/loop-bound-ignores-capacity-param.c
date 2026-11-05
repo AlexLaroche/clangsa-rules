@@ -124,3 +124,37 @@ int ctr_update(const unsigned char *in, size_t in_len, unsigned char *out, size_
 	*out_len = i;
 	return 0;
 }
+
+// The bound is the buffer's own count parameter (HAProxy
+// `regex_exec_match2(..., int length, size_t nmatch, regmatch_t pmatch[], ...)`,
+// BIND 9 `ns_listenelt_create_http(..., char **endpoints, size_t nendpoints,
+// const uint32_t max_clients, ...)`): the other size parameter describes
+// something else.
+typedef struct { int rm_so, rm_eo; } Match;
+int exec_match(const char *subject, int length, unsigned long nmatch,
+	       Match pmatch[], const int *found)
+{
+	unsigned long i;
+	for (i = 0; i < nmatch; i++)
+		// ok: raptor-loop-bound-ignores-capacity-param
+		pmatch[i].rm_so = found[i];
+	return length;
+}
+void release_endpoints(char **endpoints, unsigned long nendpoints,
+		       unsigned max_clients)
+{
+	unsigned long i;
+	for (i = 0; i < nendpoints; i++)
+		// ok: raptor-loop-bound-ignores-capacity-param
+		endpoints[i] = 0;
+	(void)max_clients;
+}
+// Another buffer's count is not this one's capacity.
+void copy_items(int *dst, unsigned long dst_len, const int *src,
+		unsigned long nsrc)
+{
+	unsigned long i;
+	for (i = 0; i < nsrc; i++)
+		// ruleid: raptor-loop-bound-ignores-capacity-param
+		dst[i] = src[i];
+}
