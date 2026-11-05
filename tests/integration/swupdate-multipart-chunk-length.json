@@ -1,0 +1,26 @@
+{
+  "name": "swupdate-multipart-chunk-length",
+  "cve": "CVE-2026-28525",
+  "repo": "https://github.com/sbabic/swupdate.git",
+  "vulnerable": "e3b3c977e200283c4eaacb7aa70b28f0cfbde704",
+  "fixed": "beee2dc0feef1cfe84f1aa6fc980e104b2e47a74",
+  "fixed_note": "mongoose_multipart: subtract the boundary length the check covers (+6), not +8",
+  "checker": "raptor.UncheckedUnsignedSubtraction",
+  "args": [
+    "-Imongoose",
+    "-Iinclude"
+  ],
+  "files": {
+    "mongoose/mongoose_multipart.c": {
+      "vulnerable": [
+        "size_t data_len = io->len - \\(mp_stream->boundary\\.len \\+ 8\\);"
+      ],
+      "fixed": [
+        {
+          "re": "size_t data_len = io->len - \\(mp_stream->boundary\\.len \\+ 6\\);",
+          "count": 2
+        }
+      ]
+    }
+  }
+}

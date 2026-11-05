@@ -1,0 +1,19 @@
+{
+  "name": "mongoose-tls-record-size",
+  "cve": "CVE-2026-73252",
+  "repo": "https://github.com/cesanta/mongoose.git",
+  "vulnerable": "7fa830fc0cc4f607330c288bd993139b6c68b14f",
+  "fixed": "758e301f0c9a9885c1b716195df5fe6d6ac9d53e",
+  "fixed_note": "tls_builtin: reject records shorter than the tag plus the content type byte (msgsz < 17)",
+  "checker": "raptor.UncheckedUnsignedSubtraction",
+  "args": [
+    "-Isrc",
+    "-DMG_TLS=MG_TLS_BUILTIN"
+  ],
+  "files": {
+    "src/tls_builtin.c": [
+      "^  r = msgsz - 16 - 1;$",
+      "^  tls->content_type = msg\\[msgsz - 16 - 1\\];$"
+    ]
+  }
+}
