@@ -1,0 +1,36 @@
+{
+  "name": "openexr-image-channel-num-pixels",
+  "cve": "CVE-2026-41142",
+  "repo": "https://github.com/AcademySoftwareFoundation/openexr.git",
+  "vulnerable": "21eaa33bcbbb0c83a5fc42f6b6d65b70a996e63c",
+  "fixed": "0592ee539f33c122c90f09238579b902d838afb4",
+  "fixed_note": "ImageChannel::resize: compute the pixel count in 64 bits with an overflow check",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "mkdir -p build-raptor/cfg && for f in cmake/*Config*.h.in; do sed -e \"s/^#cmakedefine \\([A-Za-z_0-9]*\\).*/\\/* #undef \\1 *\\//\" -e \"s/@OPENEXR_INTERNAL_IMF_NAMESPACE@/Imf_3_4/\" -e \"s/@OPENEXR_IMF_NAMESPACE@/Imf/\" -e \"s/@IEX_INTERNAL_NAMESPACE@/Iex_3_4/\" -e \"s/@IEX_NAMESPACE@/Iex/\" -e \"s/@ILMTHREAD_INTERNAL_NAMESPACE@/IlmThread_3_4/\" -e \"s/@ILMTHREAD_NAMESPACE@/IlmThread/\" -e \"s/@OPENEXR_VERSION_MAJOR@/3/\" -e \"s/@OPENEXR_VERSION_MINOR@/4/\" -e \"s/@Imath_VERSION_MAJOR@/3/\" -e \"s/@Imath_VERSION_MINOR@/1/\" -e \"s/@[A-Za-z_]*@/0/g\" \"$f\" > \"build-raptor/cfg/$(basename \"$f\" .in)\"; done"
+    ]
+  ],
+  "checker": "raptor.NarrowProductWidened",
+  "args": [
+    "-std=c++17",
+    "-Ibuild-raptor/cfg",
+    "-Isrc/lib/OpenEXRUtil",
+    "-Isrc/lib/OpenEXR",
+    "-Isrc/lib/Iex",
+    "-Isrc/lib/IlmThread",
+    "-Isrc/lib/OpenEXRCore",
+    "-I/usr/include/Imath"
+  ],
+  "files": {
+    "src/lib/OpenEXRUtil/ImfImageChannel.cpp": {
+      "vulnerable": [
+        "_numPixels       = _pixelsPerRow \\* _pixelsPerColumn;"
+      ],
+      "fixed": [
+        "_numPixels = static_cast<size_t> \\(w64 \\* h64\\);"
+      ]
+    }
+  }
+}

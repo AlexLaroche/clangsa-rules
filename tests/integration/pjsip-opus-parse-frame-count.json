@@ -1,0 +1,36 @@
+{
+  "name": "pjsip-opus-parse-frame-count",
+  "cve": "CVE-2026-29068",
+  "repo": "https://github.com/pjsip/pjproject.git",
+  "vulnerable": "63e7490a2bac586851abd43371be2608b00f9f88",
+  "fixed": "6c9024511bf5307ff72efde1f90c9a2a226d8967",
+  "fixed_note": "opus codec_parse: clamp num_frames to the caller's *frame_cnt before filling frames[]",
+  "setup": [
+    [
+      "touch",
+      "pjlib/include/pj/config_site.h"
+    ],
+    [
+      "sh",
+      "-c",
+      "mkdir -p build-raptor/stub/opus && cat > build-raptor/stub/opus/opus.h <<'EOF'\n#ifndef OPUS_STUB_H\n#define OPUS_STUB_H\ntypedef short opus_int16;\ntypedef int opus_int32;\ntypedef struct OpusEncoder OpusEncoder;\ntypedef struct OpusDecoder OpusDecoder;\ntypedef struct OpusRepacketizer OpusRepacketizer;\n#define OPUS_OK 0\n#define OPUS_AUTO -1000\n#define OPUS_APPLICATION_VOIP 2048\n#define OPUS_SIGNAL_VOICE 3001\n#define OPUS_BANDWIDTH_NARROWBAND 1101\n#define OPUS_BANDWIDTH_MEDIUMBAND 1102\n#define OPUS_BANDWIDTH_WIDEBAND 1103\n#define OPUS_BANDWIDTH_SUPERWIDEBAND 1104\n#define OPUS_BANDWIDTH_FULLBAND 1105\n#define OPUS_SET_BITRATE(x) 4002, (opus_int32)(x)\n#define OPUS_SET_COMPLEXITY(x) 4010, (opus_int32)(x)\n#define OPUS_SET_DTX(x) 4016, (opus_int32)(x)\n#define OPUS_SET_INBAND_FEC(x) 4012, (opus_int32)(x)\n#define OPUS_SET_MAX_BANDWIDTH(x) 4004, (opus_int32)(x)\n#define OPUS_SET_PACKET_LOSS_PERC(x) 4014, (opus_int32)(x)\n#define OPUS_SET_SIGNAL(x) 4024, (opus_int32)(x)\n#define OPUS_SET_VBR(x) 4006, (opus_int32)(x)\nint opus_encoder_get_size(int channels);\nint opus_encoder_init(OpusEncoder *st, opus_int32 fs, int channels, int application);\nint opus_encode(OpusEncoder *st, const opus_int16 *pcm, int frame_size, unsigned char *data, opus_int32 max_data_bytes);\nint opus_encoder_ctl(OpusEncoder *st, int request, ...);\nint opus_decoder_get_size(int channels);\nint opus_decoder_init(OpusDecoder *st, opus_int32 fs, int channels);\nint opus_decode(OpusDecoder *st, const unsigned char *data, opus_int32 len, opus_int16 *pcm, int frame_size, int decode_fec);\nint opus_packet_get_nb_samples(const unsigned char *packet, opus_int32 len, opus_int32 fs);\nint opus_repacketizer_get_size(void);\nOpusRepacketizer *opus_repacketizer_init(OpusRepacketizer *rp);\nint opus_repacketizer_cat(OpusRepacketizer *rp, const unsigned char *data, opus_int32 len);\nint opus_repacketizer_get_nb_frames(OpusRepacketizer *rp);\nopus_int32 opus_repacketizer_out(OpusRepacketizer *rp, unsigned char *data, opus_int32 maxlen);\nopus_int32 opus_repacketizer_out_range(OpusRepacketizer *rp, int begin, int end, unsigned char *data, opus_int32 maxlen);\nconst char *opus_strerror(int error);\n#endif\nEOF"
+    ]
+  ],
+  "checker": "raptor.LoopBoundIgnoresCapacityParam",
+  "args": [
+    "-DPJ_IS_LITTLE_ENDIAN=1",
+    "-DPJ_IS_BIG_ENDIAN=0",
+    "-DPJMEDIA_HAS_OPUS_CODEC=1",
+    "-Ipjlib/include",
+    "-Ipjlib-util/include",
+    "-Ipjsip/include",
+    "-Ipjmedia/include",
+    "-Ipjnath/include",
+    "-Ibuild-raptor/stub"
+  ],
+  "files": {
+    "pjmedia/src/pjmedia-codec/opus.c": [
+      "frames\\[i\\]\\.type = PJMEDIA_FRAME_TYPE_AUDIO;"
+    ]
+  }
+}
