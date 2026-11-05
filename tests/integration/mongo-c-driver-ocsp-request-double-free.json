@@ -1,0 +1,48 @@
+{
+  "name": "mongo-c-driver-ocsp-request-double-free",
+  "cve": "CVE-2026-84964",
+  "repo": "https://github.com/mongodb/mongo-c-driver.git",
+  "vulnerable": "aba72444f8e8950b8a57636b1ad72a5a853f8264",
+  "fixed": "7e4c66515a46abaf2f488ed0fe5a5c21887b6e1d",
+  "fixed_note": "CDRIVER: declare the OCSP request and URL parts inside the responder loop so a retry does not free the previous turn's request",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-raptor",
+      "-DENABLE_SSL=OPENSSL",
+      "-DENABLE_TESTS=OFF",
+      "-DENABLE_EXAMPLES=OFF",
+      "-DENABLE_SASL=OFF",
+      "-DENABLE_ZSTD=OFF",
+      "-DENABLE_SNAPPY=OFF",
+      "-DENABLE_ZLIB=BUNDLED",
+      "-DENABLE_SRV=OFF",
+      "-DENABLE_MONGODB_AWS_AUTH=OFF",
+      "-DENABLE_SHM_COUNTERS=OFF",
+      "-DENABLE_STATIC=OFF",
+      "-DENABLE_UNINSTALL=OFF"
+    ]
+  ],
+  "checker": "raptor.DoubleFree",
+  "args": [
+    "-std=gnu11",
+    "-DMONGOC_COMPILATION",
+    "-DBSON_COMPILATION",
+    "-Isrc/libmongoc/src",
+    "-Isrc/libbson/src",
+    "-Isrc/common/src",
+    "-Ibuild-raptor/src/libmongoc/src",
+    "-Ibuild-raptor/src/libbson/src",
+    "-Ibuild-raptor/src/common/src",
+    "-Ibuild-raptor/src/libmongoc/src/mongoc",
+    "-Ibuild-raptor/src/libbson/src/bson"
+  ],
+  "files": {
+    "src/libmongoc/src/mongoc/mongoc-openssl.c": [
+      "OCSP_REQUEST_free \\(req\\);"
+    ]
+  }
+}

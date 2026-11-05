@@ -119,10 +119,12 @@ after a line matching `after` (a label, a function header).
 | `trafficserver-mime-u16-assert` | CVE-2026-58154 (CVE-2026-58158) | `raptor.AssertOnlyBound` | Apache Traffic Server `9d13175` → `8a7a963` |
 | `thrift-header-negative-string-length` | CVE-2026-58662 | `raptor.NegativeLengthUnchecked` | Thrift `0ab16e3` → `f961cdb` |
 | `freerdp-rdpsnd-client-formats-free` | CVE-2026-63652 | `raptor.FreedFieldNotCleared` | FreeRDP `2701474` → `caf653c` |
+| `libssh2-sftp-open-double-free` | CVE-2026-66032 | `raptor.DoubleFree` | libssh2 `f784c21` → `5e47761` |
 | `libssh2-aes-gcm-assert-bound` | CVE-2026-66033 | `raptor.AssertOnlyBound` | libssh2 `74a09eb` → `a2ed82d` |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
 | `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
 | `indi-lilxml-error-format` | CVE-2026-71979 | `raptor.UnboundedCopyToStackArray` | INDI `3220880` → `96bbd7f` |
+| `mongo-c-driver-ocsp-request-double-free` | CVE-2026-84964 | `raptor.DoubleFree` | mongo-c-driver `aba7244` → `7e4c665` |
 | `xserver-xkb-doodad-text-free` | CVE-2026-88812 | `raptor.FreedFieldNotCleared` | X.Org xserver `effe0ba` → `0d1b1b0` |
 | `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
 | `libexpat-realloc-assert-overflow` | CVE-2026-102633 | `raptor.AssertOnlyBound` | libexpat `cccede3` → `209801d` |
@@ -191,8 +193,8 @@ One checker per rule of the semgrep C/C++ ruleset.
 #### memory management
 
 * [**raptor.InsecureApiAlloca**](src/checkers/InsecureApiAlloca.cpp). Use of the potentially insecure API function `alloca`.
-* [**raptor.UseAfterFree**](src/checkers/UseAfterFree.cpp). Potential use after `free`.
-* [**raptor.DoubleFree**](src/checkers/DoubleFree.cpp). Potential double `free`.
+* [**raptor.UseAfterFree**](src/checkers/UseAfterFree.cpp). A pointer used (`p->f`, `p[i]`, `*p`, returned, or passed to a call) after it was released with no reassignment in between. Releases are `free()` and its C relatives, allocator hooks called through a pointer, and library destructors defined in the translation unit whose body releases the argument. Lists walked by reassignment (`s = s->next`), out-parameters that may set the pointer again (`f(&p)`), paths that never return, the released argument of a second release (`raptor.DoubleFree`'s report) and releases nested in another call's arguments are not reported.
+* [**raptor.DoubleFree**](src/checkers/DoubleFree.cpp). The same pointer released twice with no reassignment in between, on any path through the function (loops included). Releases are `free()` and its C relatives (`g_free`, `CRYPTO_free`/`OPENSSL_free`, `av_free`), library destructors named `*_free`/`*_FREE`/`*Free` with a single pointer argument (when defined in the translation unit, only if their body releases it), and allocator hooks called through a pointer named `*free` (libssh2's `SSH2_FREE(session, p)`, `session->free(p, &session->abstract)`). A call that receives `&p` and is defined here but can return without setting `*p` leaves `p` possibly freed until the code reads it or another out-parameter of that call. As in libssh2's `sftp_open` (CVE-2026-66032, `SSH2_FREE(session, data)` then a failed `sftp_packet_require(..., &data, ...)` and `SSH2_FREE(session, data)` again) and mongo-c-driver's OCSP responder loop (CVE-2026-84964, `retry: OCSP_REQUEST_free(req);` reached on the next URL before a new request is made). Releasers that clear the pointer (`av_freep(&p)`), destructors that also take an address (`Curl_req_free(&data->req, data)`) and non-blocking releases retried until done (`while (libssh2_channel_free(ch) == LIBSSH2_ERROR_EAGAIN)`) are not reported.
 * [**raptor.IncorrectUseOfFree**](src/checkers/IncorrectUseOfFree.cpp). Calling `free` on memory not in the heap.
 * [**raptor.UncheckedRetMalloc**](src/checkers/UncheckedRetMalloc.cpp). Unchecked return code of `malloc`, `calloc`, `realloc`, etc.
 * [**raptor.PutenvStackVar**](src/checkers/PutenvStackVar.cpp). Call to `putenv` with a stack-allocated variable.

@@ -1,8 +1,11 @@
 // raptor.DoubleFree: free($PTR); ... free($PTR); with no
-// `$PTR = ...;` in between. Flow-sensitive walk of the CFG (may-analysis,
-// so a free on any incoming path counts). Path-sensitive tracking of the
-// freed symbol is not used because unix.Malloc (enabled by default) sinks
-// the path at the first double free.
+// `$PTR = ...;` in between. The releasers are raptor_mem::releasedArg's:
+// free() and friends, library destructors (`OCSP_REQUEST_free(req)`,
+// mongo-c-driver CVE-2026-84964) and allocator hooks (libssh2
+// `SSH2_FREE(session, data)` -> `session->free(data, ...)`, CVE-2026-66032).
+// Flow-sensitive walk of the CFG (may-analysis, so a free on any incoming path
+// counts). Path-sensitive tracking of the freed symbol is not used because
+// unix.Malloc (enabled by default) sinks the path at the first double free.
 #include "Common.h"
 #include "MemFlow.h"
 #include "Registry.h"
@@ -27,16 +30,18 @@ public:
         if (!CS)
           continue;
         const Stmt *S = CS->getStmt();
-        if (raptor_mem::isCallTo(S, "free")) {
-          const auto *CE = cast<CallExpr>(S);
-          if (CE->getNumArgs() == 1 &&
-              Freed.count(raptor_mem::keyOf(CE->getArg(0))))
+        if (const auto *CE = dyn_cast<CallExpr>(S))
+          if (const Expr *P = raptor_mem::releasedArg(CE);
+              P &&
+              (Freed.count(raptor_mem::keyOf(P)) ||
+               Freed.count("?" + raptor_mem::keyOf(P))) &&
+              !raptor_mem::onlyRetry(Freed, raptor_mem::keyOf(P), CE))
             raptor::reportAt(
                 BR, this, "Double free",
-                "The software calls free() twice on the same memory address, "
-                "potentially leading to memory corruption",
+                "The software releases the same memory address twice (free(), "
+                "a library destructor or an allocator hook), potentially "
+                "leading to memory corruption",
                 CE, Mgr.getAnalysisDeclContext(D));
-        }
         raptor_mem::trackFrees(S, Freed);
       }
     }

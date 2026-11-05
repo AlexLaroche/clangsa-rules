@@ -410,6 +410,106 @@ int resubstitute(const char *a, const char *b)
 	return substitute(b, &subst);
 }
 
+// A second release is DoubleFree's report, not a use (libssh2 SSH2_FREE).
+typedef struct session {
+	void (*free)(void *, void **);
+	void *abstract;
+} SESSION;
+#define SSH2_FREE(s, p) (s)->free((p), &(s)->abstract)
+typedef struct ocsp_req OCSP_REQUEST;
+void OCSP_REQUEST_free(OCSP_REQUEST *req);
+void release_again(SESSION *session, unsigned char *data, OCSP_REQUEST *req)
+{
+	SSH2_FREE(session, data);
+	// ok: raptor-use-after-free
+	SSH2_FREE(session, data);
+	OCSP_REQUEST_free(req);
+	// ok: raptor-use-after-free
+	OCSP_REQUEST_free(req);
+}
+
+// A *_free defined here that releases only what the object holds (curl
+// Curl_bufref_free: frees br->ptr, then the fields are set again).
+struct bufref {
+	void *ptr;
+	size_t len;
+};
+void bufref_free(struct bufref *br)
+{
+	free(br->ptr);
+	br->ptr = NULL;
+}
+void bufref_set(struct bufref *br, void *ptr, size_t len)
+{
+	bufref_free(br);
+	// ok: raptor-use-after-free
+	br->ptr = ptr;
+	br->len = len;
+}
+
+// The release is an argument of another call (libarchive's tests:
+// `assertEqualInt(ARCHIVE_OK, archive_read_free(a));`).
+struct archive;
+int archive_read_free(struct archive *a);
+int assert_equal_int(int a, int b);
+void close_archive(struct archive *a)
+{
+	// ok: raptor-use-after-free
+	assert_equal_int(0, archive_read_free(a));
+}
+
+// A destructor of what the object holds, with the object as a second
+// argument (curl `Curl_req_free(&data->req, data);`), or one whose body is
+// not here (libarchive `__archive_write_filters_free(a);`).
+struct req {
+	char *buf;
+};
+struct easy {
+	struct req req;
+	int magic;
+};
+void Curl_req_free(struct req *req, struct easy *data);
+void __archive_write_filters_free(struct archive *a);
+int archive_write_add_filter_bzip2(struct archive *a);
+int close_easy(struct easy *data, struct archive *a)
+{
+	Curl_req_free(&data->req, data);
+	// ok: raptor-use-after-free
+	data->magic = 0;
+	__archive_write_filters_free(a);
+	// ok: raptor-use-after-free
+	return archive_write_add_filter_bzip2(a);
+}
+
+// A non-blocking release retried in a loop (libssh2 BLOCK_ADJUST:
+// `do { rc = ssh2_channel_free(channel); if (rc != EAGAIN) break;
+// wait(channel->session); } while (1);`).
+struct sess;
+typedef struct channel {
+	struct sess *session;
+	char *buf;
+} CHANNEL;
+static int channel_free(CHANNEL *channel)
+{
+	if (channel->buf)
+		return -37;
+	free(channel);
+	return 0;
+}
+void wait_session(struct sess *s);
+int channel_close(CHANNEL *channel)
+{
+	int rc;
+	do {
+		rc = channel_free(channel);
+		if (rc != -37)
+			break;
+		// ok: raptor-use-after-free
+		wait_session(channel->session);
+	} while (1);
+	return rc;
+}
+
 int main()
 {
 	printf("Hello, World!");
