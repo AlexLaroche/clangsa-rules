@@ -251,7 +251,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.MissingDefaultInSwitch**](src/checkers/MissingDefaultInSwitch.cpp). Missing default case in a switch statement.
 * [**raptor.MissingBreakInSwitch**](src/checkers/MissingBreakInSwitch.cpp). Missing break or equivalent in a switch statement.
 * [**raptor.MissingReturn**](src/checkers/MissingReturn.cpp). Missing return statement in non-void function.
-* [**raptor.Typos**](src/checkers/Typos.cpp). Potential typos with security implications.
+* [**raptor.Typos**](src/checkers/Typos.cpp). Potential typos with security implications: `=` or a bitwise `&`/`|` in an `if` condition, `=+`, comparisons used as statements, `(E op E)`, empty `if`/`for` bodies, octal array sizes. Flag tests against a constant mask (`if (flags & (A | B))`) are not reported.
 
 ### Noisy
 

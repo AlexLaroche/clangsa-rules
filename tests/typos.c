@@ -331,7 +331,7 @@ int main(int argc, char *argv[])
 int typos_macro_args(int x, unsigned char *t)
 {
 	// ruleid: raptor-typos
-	if (reject(x, 2|4))
+	if (reject(x, t[0]|t[1]))
 		return 0;
 	// ok: raptor-typos
 	if (((t[1] ^ t[4]) & (t[2] ^ t[5]) & (t[3] ^ t[6])) != 0xff)
@@ -345,4 +345,33 @@ void *typos_chained_assignment(void **a, void **b)
 	if ((*a = *b = malloc(1)) == NULL)
 		return NULL;
 	return *a;
+}
+
+// Flag tests: one operand is a constant mask, the only meaning of `&` here
+// (libssh2 `if(attrs->flags & LIBSSH2_SFTP_ATTR_SIZE)`, OpenSSL
+// `if (buflen & 3)`, GStreamer `if (depth & 0x80)`).
+#define ATTR_SIZE 0x1
+#define ATTR_UID 0x2
+enum { MODE_A = 4, MODE_B = 8 };
+int typos_flag_tests(unsigned flags, unsigned len, int a, int b)
+{
+	// ok: raptor-typos
+	if (flags & ATTR_SIZE)
+		return 1;
+	// ok: raptor-typos
+	if (!(flags & (ATTR_SIZE | ATTR_UID)))
+		return 2;
+	// ok: raptor-typos
+	if (len & 3)
+		return 3;
+	// ok: raptor-typos
+	if (a == 1 && (flags & MODE_B))
+		return 4;
+	// ruleid: raptor-typos
+	if (flags | MODE_A) // always true
+		return 5;
+	// ruleid: raptor-typos
+	if (a & b)
+		return 6;
+	return 0;
 }

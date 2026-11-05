@@ -1,7 +1,8 @@
 // raptor.Typos: operator mistakes that change the meaning of the code.
 //   for (a == b; ...)            a == b;
 //   if (... a = b ...)           unless (a = b) is compared
-//   if (... a & b ...)           unless (a & b) is compared  (same for |)
+//   if (... a & b ...)           unless (a & b) is compared  (same for |),
+//                                or b is a constant mask (`flags & FLAG`)
 //   a =+ b                       (E op E) for &&, ||, ==, !=, <, <=, >, >=
 //   (char *)p = / == / != '\0'   if (... strcpy()/strncpy() ...)
 //   if (x);   for (a; b; c);     char buf[040];  (octal array size)
@@ -62,6 +63,35 @@ bool isComparedLHS(const Expr *E, ASTContext &Ctx) {
   }
 }
 
+// `flags & MASK`: a flag test, the only meaning `&` can have against a
+// constant (`flags && MASK` would be meaningless).
+bool isFlagTest(const BinaryOperator *BO, const ASTContext &Ctx) {
+  return BO->getOpcode() == BO_And && !BO->isValueDependent() &&
+         BO->getLHS()->isIntegerConstantExpr(Ctx) !=
+             BO->getRHS()->isIntegerConstantExpr(Ctx);
+}
+// A constant `A | B` building the mask of a flag test: `flags & (A | B)`.
+bool inFlagMask(const BinaryOperator *BO, ASTContext &Ctx) {
+  if (BO->isValueDependent() || !BO->isIntegerConstantExpr(Ctx))
+    return false;
+  const Stmt *Cur = BO;
+  while (true) {
+    auto Parents = Ctx.getParents(*Cur);
+    if (Parents.empty())
+      return false;
+    if (const auto *E = Parents[0].get<Expr>()) {
+      if (const auto *P = dyn_cast<BinaryOperator>(E); P && isFlagTest(P, Ctx))
+        return true;
+      if (isa<ParenExpr>(E) || isa<ImplicitCastExpr>(E) ||
+          (isa<BinaryOperator>(E) && !E->isValueDependent() &&
+           E->isIntegerConstantExpr(Ctx))) {
+        Cur = E;
+        continue;
+      }
+    }
+    return false;
+  }
+}
 bool isCharPointer(QualType T) {
   return T->isPointerType() && T->getPointeeType()->isAnyCharacterType();
 }
@@ -92,6 +122,8 @@ class TyposChecker : public Checker<check::ASTCodeBody> {
     for (const BoundNodes &N : match(findAll(Ops), *Cond, Ctx)) {
       const auto *BO = N.getNodeAs<BinaryOperator>("op");
       if (fromMacro(BO, Ctx) || isComparedLHS(BO, Ctx))
+        continue;
+      if (isFlagTest(BO, Ctx) || inFlagMask(BO, Ctx))
         continue;
       Assign |= BO->getOpcode() == BO_Assign;
       BitAnd |= BO->getOpcode() == BO_And;
