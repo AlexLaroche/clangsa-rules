@@ -156,3 +156,22 @@ void compiled_out_assert(int n)
 	// ok: raptor-suspicious-assert
 	my_assert(n);
 }
+
+/* An assertion inside another macro's body: the comparison is in the macro
+ * definition, not in the code that uses it (FreeRDP
+ * `WINPR_ASSERTING_INT_CAST(size_t, streamIndex)`). */
+void abort(void);
+#define WINPR_ASSERT(cond) ((cond) ? (void)0 : abort())
+#define WINPR_ASSERTING_INT_CAST(type, var) \
+	(WINPR_ASSERT((var) >= 0 || sizeof(var) < sizeof(type)), (type)(var))
+#define CHECKED(n) WINPR_ASSERT((n) < 100)
+size_t nested_assert(int idx)
+{
+	// ok: raptor-suspicious-assert
+	size_t a = WINPR_ASSERTING_INT_CAST(size_t, idx);
+	// ok: raptor-suspicious-assert
+	CHECKED(idx);
+	// ruleid: raptor-suspicious-assert
+	WINPR_ASSERT(idx < 100);
+	return a;
+}

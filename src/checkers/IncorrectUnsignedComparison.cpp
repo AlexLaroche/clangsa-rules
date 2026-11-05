@@ -1,5 +1,6 @@
 // raptor.IncorrectUnsignedComparison: an unsigned variable compared
 // with `< 0`, `<= 0` or `>= 0` (always false, `== 0`, always true).
+// Comparisons written in a macro body (type-generic macros) are skipped.
 #include "Common.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
@@ -29,6 +30,12 @@ public:
     for (const BoundNodes &N : match(findAll(M), *D->getBody(), C)) {
       const auto *BO = N.getNodeAs<BinaryOperator>("cmp");
       if (!isUnsignedShortOrWider(C, BO->getLHS()->IgnoreParenImpCasts()->getType()))
+        continue;
+      // A comparison written in a macro body is type-generic: it is
+      // meaningful for the signed types the macro is also used with.
+      if (SourceLocation L = BO->getOperatorLoc();
+          L.isMacroID() &&
+          !C.getSourceManager().isMacroArgExpansion(L))
         continue;
       raptor::reportAt(BR, this, "Incorrect unsigned comparison",
                        "Checking if an unsigned variable is negative makes no "

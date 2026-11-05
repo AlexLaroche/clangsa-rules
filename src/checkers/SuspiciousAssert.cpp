@@ -82,6 +82,11 @@ public:
         if (!isAssertName(Name))
           continue;
         CharSourceRange Call = SM.getImmediateExpansionRange(Loc);
+        // An assertion written in another macro's body: its arguments are
+        // that macro's definition, not code at the use; go on to the caller.
+        if (Call.getBegin().isMacroID() &&
+            !SM.isMacroArgExpansion(Call.getBegin()))
+          continue;
         if (!Lexed.insert(Call.getBegin().getRawEncoding()).second)
           break;
         if (argsHaveRelationalOp(Call, SM, Ctx.getLangOpts()))

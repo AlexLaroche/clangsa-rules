@@ -266,10 +266,11 @@ Potentially too noisy for general use. It is part of `raptor`; skip it with `-Xc
 Some ports of generic semgrep rules report every instance of a pattern
 rather than a bug, and on real projects they produce hundreds of findings per
 file: `raptor.IntegerTruncation`, `raptor.SignedUnsignedConversion`,
-`raptor.InterestingApiCalls`, `raptor.HighEntropyAssignment` and
-`raptor.PointerSubtraction`. They are useful for reviewing code by hand; for
+`raptor.InterestingApiCalls`, `raptor.HighEntropyAssignment`,
+`raptor.PointerSubtraction` and `raptor.ArgvEnvpAccess` (every use of `argv`
+or `envp`). They are useful for reviewing code by hand; for
 CVE hunting, disable them, e.g.
-`-Xclang -analyzer-disable-checker=raptor.IntegerTruncation,raptor.SignedUnsignedConversion,raptor.InterestingApiCalls,raptor.HighEntropyAssignment,raptor.PointerSubtraction`.
+`-Xclang -analyzer-disable-checker=raptor.IntegerTruncation,raptor.SignedUnsignedConversion,raptor.InterestingApiCalls,raptor.HighEntropyAssignment,raptor.PointerSubtraction,raptor.ArgvEnvpAccess`.
 The precise rules above (`raptor.TruncatedProduct`, `raptor.NarrowProductWidened`,
 `raptor.UncheckedAllocProduct`, ...) cover the integer bug shapes behind real
 CVEs.
