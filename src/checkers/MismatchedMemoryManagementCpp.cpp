@@ -1,8 +1,10 @@
 // raptor.MismatchedMemoryManagementCpp: free() of memory not
 // from malloc/calloc/realloc/strdup/strndup, `delete` of memory not from
 // scalar `new`, `delete[]` of memory not from `new[]`. Path-sensitive: the
-// allocation family of each returned symbol is recorded, and a release of
-// any other value is reported on the paths where it happens. free(NULL),
+// allocation family of each returned symbol is recorded, and a release is
+// reported when the value comes from another family, or is never heap
+// memory (a variable, a string literal); memory of unknown origin
+// (parameters, fields, destructors' members) is not reported. free(NULL),
 // `delete nullptr` and `delete[] nullptr` are no-ops, so a pointer that is
 // NULL on the current path (e.g. after a failed allocation) is not reported.
 #include "Common.h"
@@ -36,6 +38,19 @@ SymbolRef baseSymbol(SVal V) {
   return nullptr;
 }
 
+// True if V points into memory that is never heap memory: a variable
+// (local or global), a string literal, alloca() or a compound literal.
+bool notHeap(SVal V) {
+  if (auto LI = V.getAs<nonloc::LocAsInteger>())
+    V = LI->getLoc();
+  const MemRegion *R = V.getAsRegion();
+  if (!R)
+    return false;
+  R = R->getBaseRegion();
+  return isa<VarRegion>(R) || isa<StringRegion>(R) || isa<AllocaRegion>(R) ||
+         isa<CompoundLiteralRegion>(R);
+}
+
 // True if V is NULL on the current path: a null constant, or a value the
 // path constraints force to be NULL.
 bool isNullOnPath(SVal V, ProgramStateRef State) {
@@ -62,9 +77,11 @@ class MismatchedMemoryManagementCppChecker
              CheckerContext &C) const {
     if (isNullOnPath(V, C.getState()))
       return;
+    // Report only a known mismatch: memory that is never heap memory, or an
+    // allocation recorded in another family. Unknown origin is silent.
     SymbolRef S = baseSymbol(V);
     const unsigned *F = S ? C.getState()->get<RaptorAllocFamily>(S) : nullptr;
-    if (F && *F == Want)
+    if (F ? *F == Want : !notHeap(V))
       return;
     ExplodedNode *N = C.generateNonFatalErrorNode();
     if (!N)

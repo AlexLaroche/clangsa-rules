@@ -67,3 +67,30 @@ int main()
 	printf("Hello, World!");
 	return 0;
 }
+
+// Memory of unknown origin: teardown functions release what others
+// allocated.
+struct T {
+	char *name;
+};
+void destroy(struct T *t)
+{
+	// ok: raptor-mismatched-memory-management
+	free(t->name);
+	// ok: raptor-mismatched-memory-management
+	free(t);
+}
+char *make_name(void);
+void release_result(void)
+{
+	// ok: raptor-mismatched-memory-management
+	free(make_name());
+}
+
+// A global array or a string literal is never heap memory.
+static char gbuf[16];
+void free_global(void)
+{
+	// ruleid: raptor-mismatched-memory-management
+	free(gbuf);
+}

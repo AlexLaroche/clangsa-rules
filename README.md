@@ -213,8 +213,8 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.UncheckedRetMalloc**](src/checkers/UncheckedRetMalloc.cpp). Unchecked return code of `malloc`, `calloc`, `realloc`, etc.
 * [**raptor.PutenvStackVar**](src/checkers/PutenvStackVar.cpp). Call to `putenv` with a stack-allocated variable.
 * [**raptor.RetStackAddress**](src/checkers/RetStackAddress.cpp). Potential return of the address of a stack-allocated variable.
-* [**raptor.MismatchedMemoryManagement**](src/checkers/MismatchedMemoryManagement.cpp). Potentially mismatched C memory management routines.
-* [**raptor.MismatchedMemoryManagementCpp**](src/checkers/MismatchedMemoryManagementCpp.cpp). Potentially mismatched C++ memory management routines.
+* [**raptor.MismatchedMemoryManagement**](src/checkers/MismatchedMemoryManagement.cpp). `free()` of memory known not to come from `malloc()` and its relatives on the current path: a local or global variable, a string literal, `alloca()` or a compound literal. Memory of unknown origin (parameters, fields, call results: every teardown function) and pointers that are NULL on the path are not reported.
+* [**raptor.MismatchedMemoryManagementCpp**](src/checkers/MismatchedMemoryManagementCpp.cpp). A release from the wrong family: `free()` of `new` memory, `delete` of `malloc()` or `new[]` memory, `delete[]` of scalar `new` memory, or any of them on memory that is never heap memory (a variable, a string literal). Memory of unknown origin (destructors' members, parameters) and NULL pointers are not reported.
 * [**raptor.MemoryAddressExposure**](src/checkers/MemoryAddressExposure.cpp). Potential exposure of underlying memory addresses.
 
 #### command injection

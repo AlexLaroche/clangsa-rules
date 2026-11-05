@@ -109,6 +109,40 @@ void good_free_through_int_cast(size_t n)
 	free((void *)(size_t)p);
 }
 
+// Memory of unknown origin: destructors and teardown functions.
+struct Holder {
+	int *a;
+	~Holder()
+	{
+		// ok: raptor-mismatched-memory-management-cpp
+		delete[] a;
+	}
+};
+void destroy(BarObj *t)
+{
+	// ok: raptor-mismatched-memory-management-cpp
+	delete t;
+}
+void release_array(int *p)
+{
+	// ok: raptor-mismatched-memory-management-cpp
+	delete[] p;
+}
+
+// new[] released with free(), scalar new with delete[].
+void bad_families(void)
+{
+	int *p = new int[3];
+	// ruleid: raptor-mismatched-memory-management-cpp
+	free(p);
+}
+void bad_families2(void)
+{
+	BarObj *o = new BarObj();
+	// ruleid: raptor-mismatched-memory-management-cpp
+	delete[] o;
+}
+
 int main()
 {
 	printf("Hello, World!");
