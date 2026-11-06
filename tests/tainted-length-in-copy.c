@@ -199,3 +199,30 @@ void remaining_length(unsigned char *s, long len, unsigned char *out)
 	// ok: raptor-tainted-length-in-copy
 	memcpy(out, s + 4, blob_len);
 }
+
+// A length rounded up from itself, then bounded (FFmpeg webp_decode_frame:
+// `chunk_size += chunk_size & 1; if (bytestream2_get_bytes_left(&gb) <
+// chunk_size) break; ... memcpy(exif_buf->data, gb.buffer, chunk_size);`):
+// one decoded value, not a sum of two that could wrap.
+void webp_chunk(const unsigned char *p, const unsigned char *end,
+		unsigned char *d)
+{
+	unsigned n = p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24;
+	p += 4;
+	n += n & 1;
+	if ((unsigned)(end - p) < n)
+		return;
+	// ok: raptor-tainted-length-in-copy
+	memcpy(d, p, n);
+}
+// Two decoded values summed: still not a bound.
+void two_fields(const unsigned char *p, const unsigned char *end,
+		unsigned char *d)
+{
+	unsigned off = p[0] << 8 | p[1];
+	unsigned len = p[2] << 8 | p[3];
+	if (off + len > (unsigned)(end - p))
+		return;
+	// ruleid: raptor-tainted-length-in-copy
+	memcpy(d, p + off, len);
+}

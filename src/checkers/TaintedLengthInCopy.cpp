@@ -14,7 +14,8 @@
 // with 0 or 1 is only a lower bound), or in == / != with a non-constant
 // value, which marks it checked on the paths that follow. A comparison of a
 // sum of two unchecked decoded values (offset + len > size) does not count,
-// because the sum can wrap around. Sink: the size argument of memcpy() and
+// because the sum can wrap around (a value combined with itself, `n + (n &
+// 1)`, is not such a sum). Sink: the size argument of memcpy() and
 // friends.
 #include "Common.h"
 #include "Registry.h"
@@ -210,10 +211,12 @@ class TaintedLengthInCopyChecker
       return false;
     SmallVector<SymbolRef, 4> Ops;
     addOperands(Sym, Ops);
-    unsigned Unchecked = 0;
+    // Distinct decoded values: `n + (n & 1)` (rounding n up) is one value.
+    llvm::SmallPtrSet<SymbolRef, 4> Unchecked;
     for (SymbolRef Op : Ops)
-      Unchecked += unchecked(State, nonloc::SymbolVal(Op)).first != nullptr;
-    return Unchecked >= 2;
+      if (SymbolRef S = unchecked(State, nonloc::SymbolVal(Op)).first)
+        Unchecked.insert(S);
+    return Unchecked.size() >= 2;
   }
 
 public:
