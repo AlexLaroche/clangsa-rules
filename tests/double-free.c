@@ -501,6 +501,114 @@ int lookup_partial(int n)
 	return 0;
 }
 
+// A destructor that removes its object from the container the loop counts
+// (FFmpeg avfilter_graph_free: `while (graph->nb_filters)
+// avfilter_free(graph->filters[0]);`): a new element each turn.
+typedef struct Filter Filter;
+typedef struct Graph { Filter **filters; unsigned nb_filters; } Graph;
+void filter_free(Filter *f);
+void graph_free(Graph *graph)
+{
+	while (graph->nb_filters)
+		// ok: raptor-double-free
+		filter_free(graph->filters[0]);
+	free(graph->filters);
+}
+// The loop does not count the array: still reported.
+void graph_free_other(Graph *graph, int n)
+{
+	while (n--)
+		// ruleid: raptor-double-free
+		filter_free(graph->filters[0]);
+}
+// Two destructors of different parts of one object (FFmpeg avcodec_close:
+// `ff_frame_thread_encoder_free(avctx); ... ff_thread_free(avctx);`).
+typedef struct Codec Codec;
+void codec_encoder_free(Codec *c);
+void codec_thread_free(Codec *c);
+void codec_close(Codec *c, int threads)
+{
+	if (threads)
+		codec_encoder_free(c);
+	// ok: raptor-double-free
+	codec_thread_free(c);
+}
+// The same destructor twice: still reported.
+void codec_close_twice(Codec *c)
+{
+	codec_thread_free(c);
+	// ruleid: raptor-double-free
+	codec_thread_free(c);
+}
+// A fill whose failure exits before the release (FFmpeg dovi_rpu_update_fragments_av1:
+// `ret = update_rpu(..., &rpu, ...); if (ret < 0) return ret;` in a loop that
+// does `av_free(rpu); continue;`).
+static int make_rpu(int n, unsigned char **out)
+{
+	if (n < 0)
+		return -1;
+	*out = malloc(n);
+	return 0;
+}
+int rpu_loop(int *sizes, int n)
+{
+	unsigned char *rpu = NULL;
+	int ret;
+	for (int i = 0; i < n; i++) {
+		ret = make_rpu(sizes[i], &rpu);
+		if (ret < 0)
+			return ret;
+		if (sizes[i] <= 1) {
+			// ok: raptor-double-free
+			free(rpu);
+			continue;
+		}
+	}
+	return 0;
+}
+// A release on a path that sets the status the second release tests
+// (FFmpeg param_parse: `ret = 0; av_free(out_param); goto fail; ...
+// fail: if (ret < 0) av_free(out_param);`).
+int parse_param(int bad, int type)
+{
+	int ret;
+	char *out = malloc(16);
+	if (!out)
+		return -1;
+	if (bad) {
+		ret = 0;
+		free(out);
+		goto fail;
+	}
+	if (type > 3) {
+		ret = -22;
+		goto fail;
+	}
+	return 0;
+fail:
+	if (ret < 0)
+		// ok: raptor-double-free
+		free(out);
+	return ret;
+}
+// The status set on that path passes the test: still reported.
+int parse_param_bad(int bad)
+{
+	int ret;
+	char *out = malloc(16);
+	if (bad) {
+		ret = -1;
+		free(out);
+		goto fail;
+	}
+	return 0;
+fail:
+	if (ret < 0)
+		// ruleid: raptor-double-free
+		free(out);
+	return ret;
+}
+
 int main()
 {
 	printf("Hello, World!");
