@@ -301,6 +301,60 @@ int_to_roman(int number, const char *p)
 	return result;
 }
 
+// Measure, allocate, then print (nghttp2 session_call_error_callback,
+// nghttp3_unreachable_fail): the first call is given no buffer and returns
+// the size needed; the second prints the same format into a buffer of that
+// size plus one, so its result fits.
+#include <stdarg.h>
+char *measured(const char *fmt, ...)
+{
+	va_list ap;
+	char *buf;
+	size_t bufsize;
+	int rv;
+	va_start(ap, fmt);
+	// ok: raptor-unsafe-ret-snprintf-vsnprintf
+	rv = vsnprintf(NULL, 0, fmt, ap);
+	va_end(ap);
+	if (rv < 0)
+		return NULL;
+	bufsize = (size_t)(rv + 1);
+	buf = malloc(bufsize);
+	if (buf == NULL)
+		return NULL;
+	va_start(ap, fmt);
+	// ok: raptor-unsafe-ret-snprintf-vsnprintf
+	rv = vsnprintf(buf, bufsize, fmt, ap);
+	va_end(ap);
+	if (rv < 0) {
+		free(buf);
+		return NULL;
+	}
+	buf[rv] = 0;
+	return buf;
+}
+char *measured_snprintf(const char *file, const char *func)
+{
+	// ok: raptor-unsafe-ret-snprintf-vsnprintf
+	int rv = snprintf(NULL, 0, "%s: %s\n", file, func);
+	size_t buflen = (size_t)rv + 1;
+	char *buf = malloc(buflen);
+	// ok: raptor-unsafe-ret-snprintf-vsnprintf
+	rv = snprintf(buf, buflen, "%s: %s\n", file, func);
+	return buf + rv;
+}
+// Sized from another format: still reported.
+char *measured_other(const char *file, const char *func)
+{
+	// ok: raptor-unsafe-ret-snprintf-vsnprintf
+	int rv = snprintf(NULL, 0, "%s", file);
+	size_t buflen = (size_t)rv + 1;
+	char *buf = malloc(buflen);
+	// ruleid: raptor-unsafe-ret-snprintf-vsnprintf
+	rv = snprintf(buf, buflen, "%s: %s\n", file, func);
+	return buf + rv;
+}
+
 int main()
 {
 	printf("Hello, World!");
