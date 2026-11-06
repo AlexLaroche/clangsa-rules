@@ -368,6 +368,75 @@ int alt_mode(int mode)
 	return mode;
 }
 
+// A case macro wrapped in `do { ...; return 0; } while (0)` returns (FFmpeg
+// ff_default_get_supported_config's WRAP_CONFIG).
+#define PICK(v) do { if ((v) < 0) return -1; *out = (v); return 0; } while (0)
+int pick(int k, int *out)
+{
+	// ok: raptor-missing-break-in-switch
+	switch (k) {
+	case 0:
+		PICK(10);
+	case 1:
+		PICK(20);
+	default:
+		return -1;
+	}
+}
+
+// A do-while(0) that breaks out of itself still falls into the next case.
+int pick_break(int k, int *out)
+{
+	// ruleid: raptor-missing-break-in-switch
+	switch (k) {
+	case 0:
+		do { if (*out) break; return 0; } while (0);
+	case 1:
+		*out = 1;
+		return 1;
+	default:
+		return -1;
+	}
+}
+
+// A case that only warns and then shares the next case's handling (FFmpeg
+// nsp_read_header: `case SD_2..SD_8: av_log(.., "Unsupported chunk!");
+// case SDA_: channels = 1;`).
+void av_log(void *avcl, int level, const char *fmt, ...);
+int chunk_channels(int chunk)
+{
+	int channels = 0;
+	// ok: raptor-missing-break-in-switch
+	switch (chunk) {
+	case 1:
+		channels = 2;
+		break;
+	case 2:
+	case 3:
+		av_log(0, 24, "Unsupported chunk!\n");
+	case 4:
+		channels = 1;
+		break;
+	}
+	return channels;
+}
+
+// A case that does work besides logging still falls through unmarked.
+int chunk_channels2(int chunk)
+{
+	int channels = 0;
+	// ruleid: raptor-missing-break-in-switch
+	switch (chunk) {
+	case 2:
+		av_log(0, 24, "Unsupported chunk!\n");
+		channels = 3;
+	case 4:
+		channels = 1;
+		break;
+	}
+	return channels;
+}
+
 int main()
 {
 	printf("Hello, World!");

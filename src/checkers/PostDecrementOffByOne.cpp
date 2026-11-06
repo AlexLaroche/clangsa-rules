@@ -19,6 +19,7 @@
 #include "Registry.h"
 #include "clang/AST/ParentMap.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include <functional>
 #include <vector>
 
@@ -74,12 +75,44 @@ bool leaves(const Stmt *S) {
   return isa_and_nonnull<BreakStmt, ReturnStmt, GotoStmt>(S);
 }
 
-bool accessesMemory(const Stmt *S) {
+// The variables Loop (its condition, body and increment) changes.
+llvm::SmallPtrSet<const ValueDecl *, 8> modified(const Stmt *Loop) {
+  llvm::SmallPtrSet<const ValueDecl *, 8> Out;
+  auto target = [&](const Expr *E) {
+    if (const auto *DR = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts()))
+      Out.insert(DR->getDecl());
+  };
+  walk(Loop, [&](const Stmt *X) {
+    if (const auto *UO = dyn_cast<UnaryOperator>(X); UO && UO->isIncrementDecrementOp())
+      target(UO->getSubExpr());
+    if (const auto *BO = dyn_cast<BinaryOperator>(X); BO && BO->isAssignmentOp())
+      target(BO->getLHS());
+  });
+  return Out;
+}
+
+bool mentions(const Stmt *S, const llvm::SmallPtrSet<const ValueDecl *, 8> &Vars) {
   bool Found = false;
   walk(S, [&](const Stmt *X) {
-    if (const auto *UO = dyn_cast<UnaryOperator>(X))
-      Found |= UO->getOpcode() == UO_Deref;
-    Found |= isa<ArraySubscriptExpr>(X);
+    if (const auto *DR = dyn_cast<DeclRefExpr>(X))
+      Found |= Vars.count(DR->getDecl()) > 0;
+  });
+  return Found;
+}
+
+// Does the body of Loop walk memory: a subscript by a non-constant index, or
+// a dereference of a pointer the loop moves? `*q = f(*q); q->v[0] += 1`
+// touches the same slots every turn (FFmpeg av_mod_i).
+bool accessesMemory(const Stmt *Loop, const Stmt *S, const ASTContext &Ctx) {
+  auto Mod = modified(Loop);
+  bool Found = false;
+  walk(S, [&](const Stmt *X) {
+    if (const auto *UO = dyn_cast<UnaryOperator>(X); UO && UO->getOpcode() == UO_Deref)
+      Found |= mentions(UO->getSubExpr(), Mod);
+    if (const auto *AS = dyn_cast<ArraySubscriptExpr>(X)) {
+      int64_t V;
+      Found |= !constValue(AS->getIdx(), Ctx, V) || mentions(AS->getBase(), Mod);
+    }
   });
   return Found;
 }
@@ -135,7 +168,7 @@ public:
         };
         split(C);
         for (const Expr *P : Parts)
-          if (postDecTest(P, Ctx, /*Neg=*/false) && accessesMemory(LB))
+          if (postDecTest(P, Ctx, /*Neg=*/false) && accessesMemory(S, LB, Ctx))
             report(P);
         return;
       }
@@ -147,7 +180,7 @@ public:
         if (isa<SwitchStmt>(P) && isa<BreakStmt>(If->getThen()))
           return; // that break leaves the switch
         if (const Stmt *LB = loopBody(P)) {
-          if (accessesMemory(LB))
+          if (accessesMemory(P, LB, Ctx))
             report(If->getCond());
           return;
         }

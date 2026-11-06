@@ -357,6 +357,21 @@ int windows_example()
 	return 0;
 }
 
+// `size + !size` adds 1 only when size is 0, so it never wraps (FFmpeg
+// av_realloc: `realloc(ptr, size + !size)`).
+void *grow_nonzero(void *ptr, size_t size)
+{
+	// ok: raptor-integer-wraparound
+	return realloc(ptr, size + !size);
+}
+
+// `size + !other` can still wrap.
+void *grow_other(void *ptr, size_t size, size_t other)
+{
+	// ruleid: raptor-integer-wraparound
+	return realloc(ptr, size + !other);
+}
+
 int main()
 {
 	printf("Hello, World!");

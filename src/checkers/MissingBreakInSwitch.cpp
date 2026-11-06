@@ -18,6 +18,7 @@ using namespace ast_matchers;
 namespace {
 
 bool allCasesLeave(const SwitchStmt *SW);
+bool breaksOut(const Stmt *S);
 
 // Does S end the case, i.e. is it break/continue/return/goto/exit(...), or an
 // inner switch with a default whose every case leaves the function?
@@ -47,6 +48,13 @@ bool isTerminator(const Stmt *S) {
     return true;
   if (const auto *SW = dyn_cast<SwitchStmt>(S))
     return allCasesLeave(SW);
+  // do { ...; return 0; } while (0): a statement macro that leaves, unless a
+  // break inside it only leaves the do.
+  if (const auto *Do = dyn_cast<DoStmt>(S)) {
+    const auto *C = dyn_cast<IntegerLiteral>(Do->getCond()->IgnoreParenCasts());
+    return C && C->getValue() == 0 && !breaksOut(Do->getBody()) &&
+           isTerminator(Do->getBody());
+  }
   if (const auto *E = dyn_cast<Expr>(S))
     if (const auto *CE = dyn_cast<CallExpr>(E->IgnoreParenCasts()))
     {
@@ -159,15 +167,29 @@ private:
     return isa<BreakStmt>(Sub);
   }
 
+  // Is S a call to a logging function (av_log, g_warning, ...)? A case
+  // group that only logs a warning and falls into the next one warns before
+  // shared handling. A printf is not one: printing a verdict and falling
+  // into the opposite verdict is the CWE-484 example.
+  static bool isLogCall(const Stmt *S) {
+    const auto *E = dyn_cast<Expr>(S);
+    const auto *CE = E ? dyn_cast<CallExpr>(E->IgnoreParenCasts()) : nullptr;
+    if (!CE)
+      return false;
+    std::string N = StringRef(raptor::calleeName(CE)).lower();
+    return StringRef(N).contains("log") || StringRef(N).contains("warn");
+  }
+
   static bool hasFallthrough(const SwitchStmt *SW, ASTContext &Ctx) {
     const auto *Body = dyn_cast_or_null<CompoundStmt>(SW->getBody());
     if (!Body)
       return false;
     bool InGroup = false;
     const Stmt *Last = nullptr; // last statement of the current group
+    bool OnlyLogs = false;      // every statement of the group logs
     for (const Stmt *S : Body->body()) {
       if (const auto *SC = dyn_cast<SwitchCase>(S)) {
-        if (InGroup && Last && !isTerminator(Last) &&
+        if (InGroup && Last && !isTerminator(Last) && !OnlyLogs &&
             !markedIntended(Last, SC, Ctx) && !onlyBreaks(SC))
           return true;
         InGroup = true;
@@ -176,11 +198,14 @@ private:
         while (const auto *Inner = dyn_cast<SwitchCase>(Sub))
           Sub = Inner->getSubStmt();
         Last = isa<NullStmt>(Sub) ? nullptr : Sub;
+        OnlyLogs = !Last || isLogCall(Last);
         continue;
       }
       // `X(a, b);` with a case macro ending in `break;`: the `;` is empty.
-      if (InGroup && !isa<NullStmt>(S))
+      if (InGroup && !isa<NullStmt>(S)) {
         Last = S;
+        OnlyLogs = OnlyLogs && isLogCall(S);
+      }
     }
     return false;
   }

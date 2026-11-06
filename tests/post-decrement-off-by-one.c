@@ -78,3 +78,23 @@ void zero(char *p, int n) {
   while (n-- >= 0)
     *p++ = 0;
 }
+
+// The loop counts shifts, not elements: it only touches fixed slots
+// (FFmpeg av_mod_i: `while (i-- >= 0) { *quot = shr(*quot); quot->v[0] += 1; }`).
+struct big { unsigned short v[8]; };
+struct big shr(struct big a);
+void divide(struct big *quot, int i) {
+  // ok: raptor-post-decrement-off-by-one
+  while (i-- >= 0) {
+    *quot = shr(*quot);
+    quot->v[0] += 1;
+  }
+}
+
+// Indexing by a variable walks memory.
+void fill_k(int *a, int n, int k) {
+  int j = 0;
+  // ruleid: raptor-post-decrement-off-by-one
+  while (n-- >= 0)
+    a[j++] = k;
+}

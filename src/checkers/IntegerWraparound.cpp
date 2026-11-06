@@ -15,6 +15,18 @@ using namespace ast_matchers;
 
 namespace {
 bool isOneOfOp(BinaryOperatorKind K);
+bool sameExpr(const Expr *A, const Expr *B, const ASTContext &Ctx);
+
+// Is one side of BO `!X` where X is the other side? `size + !size` adds 1
+// only to 0, so it cannot wrap (FFmpeg av_realloc).
+bool plusNotSelf(const BinaryOperator *BO, const ASTContext &Ctx) {
+  auto notOf = [&](const Expr *N, const Expr *X) {
+    const auto *UO = dyn_cast<UnaryOperator>(N->IgnoreParenImpCasts());
+    return UO && UO->getOpcode() == UO_LNot && sameExpr(UO->getSubExpr(), X, Ctx);
+  };
+  return BO->getOpcode() == BO_Add && (notOf(BO->getRHS(), BO->getLHS()) ||
+                                       notOf(BO->getLHS(), BO->getRHS()));
+}
 // A `*` or `+` (or `*=`, `+=`) that can wrap: the operands' value widths
 // (raptor::valueBits) do not fit the result type, so `CARD8 + 1` or
 // `min(n, 6) + 1` do not count.
@@ -25,7 +37,7 @@ bool isMulOrAdd(const Expr *E, const ASTContext &Ctx) {
     return false;
   if (BO->getOpcode() == BO_MulAssign || BO->getOpcode() == BO_AddAssign)
     return true;
-  if (!isOneOfOp(BO->getOpcode()))
+  if (!isOneOfOp(BO->getOpcode()) || plusNotSelf(BO, Ctx))
     return false;
   QualType T = BO->getType();
   // Size arithmetic (size_t) keeps the plain syntactic rule: it wraps on
