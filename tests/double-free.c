@@ -458,6 +458,49 @@ void pk_free_twice(PK *pk)
 	pk_free(pk);
 }
 
+// A free under a test whose every case returns before the next release
+// (libuv uv__getpwuid_r: `if (r != 0 || result == NULL) uv__free(buf);`,
+// then `if (r != 0) return ...; if (result == NULL) return ...;` and the
+// final `uv__free(buf);` on success only).
+int lookup(char *buf, int n, int **res);
+int lookup_retry(int n)
+{
+	char *buf;
+	int *result;
+	int r;
+	for (;; n *= 2) {
+		buf = malloc(n);
+		if (buf == NULL)
+			return -1;
+		r = lookup(buf, n, &result);
+		if (r != 0 || result == NULL)
+			free(buf);
+		if (r != 34)
+			break;
+	}
+	if (r != 0)
+		return r;
+	if (result == NULL)
+		return -2;
+	// ok: raptor-double-free
+	free(buf);
+	return 0;
+}
+// One case of the test falls through to the second release.
+int lookup_partial(int n)
+{
+	char *buf = malloc(n);
+	int *result;
+	int r = lookup(buf, n, &result);
+	if (r != 0 || result == NULL)
+		free(buf);
+	if (r != 0)
+		return r;
+	// ruleid: raptor-double-free
+	free(buf);
+	return 0;
+}
+
 int main()
 {
 	printf("Hello, World!");
