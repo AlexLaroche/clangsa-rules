@@ -294,3 +294,41 @@ out:
   free(context->client_formats);
   return error;
 }
+
+// A destructor whose body is here and only clears the object's contents
+// (Mbed TLS mbedtls_ssl_session_free(): frees the hostname and ticket,
+// zeroes the session, keeps the block) does not leave a dangling pointer.
+typedef struct {
+  char *hostname;
+} Session;
+typedef struct {
+  Session *session;
+} SslContext;
+void session_free(Session *s) {
+  free(s->hostname);
+  memset(s, 0, sizeof(*s));
+}
+int session_load(Session *s, const unsigned char *p);
+int context_load(SslContext *ssl, Session *negotiate, const unsigned char *p) {
+  ssl->session = negotiate;
+  if (session_load(ssl->session, p) != 0) {
+    // ok: raptor-freed-field-not-cleared
+    session_free(ssl->session);
+    return -1;
+  }
+  return 0;
+}
+// One that releases the block still counts.
+void session_obj_free(Session *s) {
+  free(s->hostname);
+  free(s);
+}
+int context_load2(SslContext *ssl, Session *negotiate, const unsigned char *p) {
+  ssl->session = negotiate;
+  if (session_load(ssl->session, p) != 0) {
+    // ruleid: raptor-freed-field-not-cleared
+    session_obj_free(ssl->session);
+    return -1;
+  }
+  return 0;
+}

@@ -14,7 +14,8 @@
 // that a goto jumps to and that the code above cannot fall into (FreeRDP
 // `out_free: free(context->client_formats); return error;`), up to the next
 // return. The release (free,
-// g_free, xfree, OPENSSL_free, `*_free(p)` with one argument; not
+// g_free, xfree, OPENSSL_free, `*_free(p)` with one argument, whose body,
+// when it is in the translation unit, releases p; not
 // `av_freep(&p)`, which clears) is a statement of that branch, on a field
 // reached through a pointer (`x->f`, `x->a.b`).
 // Filled in: earlier in the function the field is assigned or its address is
@@ -33,6 +34,7 @@
 // isns_attr_type_string_decode / _opaque_decode), CVE-2026-63652 (FreeRDP
 // rdpsnd_server_recv_formats).
 #include "Common.h"
+#include "MemFlow.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include <algorithm>
@@ -85,7 +87,15 @@ bool isRelease(const CallExpr *CE) {
     return false;
   if (raptor::isOneOf(N, {"free", "g_free", "xfree", "cfree", "CRYPTO_free", "OPENSSL_free"}))
     return true;
-  return N.ends_with("_free") && CE->getNumArgs() == 1;
+  if (!N.ends_with("_free") || CE->getNumArgs() != 1)
+    return false;
+  // A destructor defined here releases the field only if its body releases
+  // its argument (Mbed TLS mbedtls_ssl_session_free() clears the session and
+  // keeps the block).
+  const FunctionDecl *Def = nullptr;
+  if (CE->getDirectCallee() && CE->getDirectCallee()->hasBody(Def))
+    return raptor_mem::releasedArg(CE, 2, false) != nullptr;
+  return true;
 }
 
 bool isAllocator(StringRef N) {
