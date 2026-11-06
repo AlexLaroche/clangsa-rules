@@ -11,10 +11,18 @@
 //    with no upper bound on that length before the copy (`if (len >
 //    sizeof(dst)) return;`, `if (len <= cap) memcpy(...)`, a min()). A lower
 //    bound (`PJ_ASSERT_RETURN(slen >= need)`) does not count.
+// Not reported: a destination allocated with room for the length (`d =
+// malloc(n * sizeof(*s)); memcpy(d, s, n * sizeof(*s));`, also as one term
+// of the allocation through a variable: libuv uv_getaddrinfo), `sizeof(*src)`
+// into a destination object at least that large (a sockaddr_in6 into a
+// sockaddr_storage), and a length that contains the source but is bounded
+// from above before a copy into an array (libuv `if ((size_t)(z - p) >=
+// PATH_MAX) continue; memcpy(b, p, z - p);`).
 // Copy functions include thin wrappers defined in the translation unit
 // (`static inline void *pj_memcpy(d, s, n) { return memcpy(d, s, n); }`).
 // A string literal source is excluded, including (like semgrep's constant
 // propagation) a variable initialized with a literal and never assigned.
+#include "ApiUtil.h"
 #include "BufHelpers.h"
 #include "MemFlow.h"
 #include "Registry.h"
@@ -123,7 +131,77 @@ bool sameObjectSize(const Expr *Dst, const Expr *Len, ASTContext &Ctx) {
       T->isIncompleteType())
     return false;
   return Ctx.getTypeSizeInChars(O) >= Ctx.getTypeSizeInChars(T) &&
-         Ctx.hasSameUnqualifiedType(O, T);
+         (Ctx.hasSameUnqualifiedType(O, T) ||
+          (O->isRecordType() && T->isRecordType()));
+}
+
+std::string squeezed(const Expr *E, ASTContext &Ctx) {
+  std::string T;
+  for (char Ch : raptor::api::textAsWritten(E, Ctx))
+    if (!isspace(static_cast<unsigned char>(Ch)))
+      T += Ch;
+  return T;
+}
+
+// Was Dst (or the base of `Dst + off`) assigned, before Call, the result of an
+// allocation whose size holds Len's text, directly or in the value of a
+// local variable used in the size?
+bool allocatedFor(const Stmt *Body, const CallExpr *Call, const Expr *Dst,
+                  const Expr *Len, ASTContext &Ctx) {
+  const SourceManager &SM = Ctx.getSourceManager();
+  const Expr *Base = stripCasts(Dst);
+  if (const auto *BO = dyn_cast<BinaryOperator>(Base);
+      BO && BO->isAdditiveOp() && BO->getLHS()->getType()->isPointerType())
+    Base = stripCasts(BO->getLHS());
+  std::string L = squeezed(Len, Ctx);
+  if (L.empty())
+    return false;
+  SourceLocation At = SM.getExpansionLoc(Call->getBeginLoc());
+  auto Values = [&](const VarDecl *V, std::vector<const Expr *> &Out) {
+    if (V->getInit())
+      Out.push_back(V->getInit());
+    forEach<BinaryOperator>(Body, [&](const BinaryOperator *A) {
+      if (A->isAssignmentOp() && refDecl(A->getLHS()) == V)
+        Out.push_back(A->getRHS());
+    });
+  };
+  auto Holds = [&](const Expr *Size) {
+    if (squeezed(Size, Ctx).find(L) != std::string::npos)
+      return true;
+    bool Found = false;
+    forEach<DeclRefExpr>(Size, [&](const DeclRefExpr *R) {
+      const auto *V = dyn_cast<VarDecl>(R->getDecl());
+      if (Found || !V || !V->hasLocalStorage())
+        return;
+      std::vector<const Expr *> Vs;
+      Values(V, Vs);
+      for (const Expr *X : Vs)
+        Found |= squeezed(X, Ctx).find(L) != std::string::npos;
+    });
+    return Found;
+  };
+  auto FromAlloc = [&](const Expr *RHS) {
+    const auto *C = dyn_cast_or_null<CallExpr>(stripCasts(RHS));
+    if (!C || StringRef(raptor::calleeName(C)).lower().find("alloc") ==
+                  std::string::npos)
+      return false;
+    for (const Expr *A : C->arguments())
+      if (Holds(A))
+        return true;
+    return false;
+  };
+  auto Before = [&](const Stmt *S) {
+    return SM.isBeforeInTranslationUnit(SM.getExpansionLoc(S->getEndLoc()),
+                                        At);
+  };
+  bool B = false;
+  forEach<BinaryOperator>(Body, [&](const BinaryOperator *A) {
+    B |= A->getOpcode() == BO_Assign && Before(A) &&
+         sameExpr(A->getLHS(), Base) && FromAlloc(A->getRHS());
+  });
+  if (const auto *V = dyn_cast_or_null<VarDecl>(refDecl(Base)))
+    B |= V->getInit() && FromAlloc(V->getInit());
+  return B;
 }
 
 // An array, or the address of a local object: its capacity is known here.
@@ -300,7 +378,10 @@ public:
         if (!isConstantString(Src, Body)) {
           Bad = (declaredWithSize(Src, Len, Ctx) &&
                  !declaredWithSize(Dst, Len, Ctx)) ||
-                (containsExpr(Len, Src) && !sameObjectSize(Dst, Len, Ctx));
+                (containsExpr(Len, Src) && !sameObjectSize(Dst, Len, Ctx) &&
+                 !(fixedCapacity(Dst) &&
+                   boundedAbove(Body, CE, Len, Len, Ctx.getSourceManager())));
+          Bad = Bad && !allocatedFor(Body, CE, Dst, Len, Ctx);
           if (!Bad && fixedCapacity(Dst))
             if (const Expr *T = sourceLength(Src, Len))
               Bad = !boundedAbove(Body, CE, Len, T, Ctx.getSourceManager());

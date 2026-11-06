@@ -1299,3 +1299,89 @@ void peer_fill(struct peer *peer, const struct Curl_str *host)
 	// ok: raptor-use-of-source-size-in-copy
 	memcpy(peer->user_hostname, host->str, host->len);
 }
+
+// The destination was allocated with room for the copy (libuv uv_fs_write:
+// `req->bufs = uv__malloc(nbufs * sizeof(*bufs)); ... memcpy(req->bufs,
+// bufs, nbufs * sizeof(*bufs));`, uv_getaddrinfo: the length is one term of
+// the allocation, through a variable).
+struct iobuf { char *base; size_t len; };
+struct ioreq { struct iobuf *bufs; struct iobuf bufsml[4]; };
+int ioreq_init(struct ioreq *req, const struct iobuf *bufs, unsigned nbufs)
+{
+	req->bufs = req->bufsml;
+	if (nbufs > 4)
+		req->bufs = malloc(nbufs * sizeof(*bufs));
+	if (req->bufs == NULL)
+		return -1;
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(req->bufs, bufs, nbufs * sizeof(*bufs));
+	return 0;
+}
+struct hints { int flags; int family; };
+char *pack_hints(const struct hints *hints, const char *name)
+{
+	size_t name_len = strlen(name) + 1;
+	size_t hints_len = hints ? sizeof(*hints) : 0;
+	char *buf = malloc(name_len + hints_len);
+	if (buf == NULL)
+		return NULL;
+	if (hints)
+		// ok: raptor-use-of-source-size-in-copy
+		memcpy(buf, hints, sizeof(*hints));
+	memcpy(buf + hints_len, name, name_len);
+	return buf;
+}
+// Allocated with another size: still reported.
+struct iobuf *iobuf_dup(const struct iobuf *bufs, unsigned nbufs, unsigned cap)
+{
+	struct iobuf *out = malloc(cap * sizeof(*out));
+	if (out == NULL)
+		return NULL;
+	// ruleid: raptor-use-of-source-size-in-copy
+	memcpy(out, bufs, nbufs * sizeof(*bufs));
+	return out;
+}
+// Into a larger object of another type (libuv uv__udp_set_source_membership6:
+// `memcpy(&mreq.gsr_group, multicast_addr, sizeof(*multicast_addr))`, a
+// sockaddr_in6 into a sockaddr_storage).
+struct addr_small { int family; char data[12]; };
+struct addr_storage { int family; char data[124]; };
+struct group_req2 { struct addr_storage group; };
+void set_group(struct group_req2 *g, const struct addr_small *a)
+{
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(&g->group, a, sizeof(*a));
+}
+void set_small(struct addr_small *s, const struct addr_storage *a)
+{
+	// ruleid: raptor-use-of-source-size-in-copy
+	memcpy(s, a, sizeof(*a));
+}
+// A length bounded before the copy into an array (libuv uv__spawn_and_init_
+// child_fork: `if ((size_t)(z - p) >= PATH_MAX) continue; memcpy(b, p, z -
+// p);` with `char b[PATH_MAX + NAME_MAX + 1]`).
+void path_entries(const char *p)
+{
+	const char *z;
+	do {
+		char b[4096 + 256];
+		z = strchr(p, ':');
+		if (!z)
+			z = p + strlen(p);
+		if ((size_t)(z - p) >= 4096) {
+			p = z + 1;
+			continue;
+		}
+		// ok: raptor-use-of-source-size-in-copy
+		memcpy(b, p, z - p);
+		b[z - p] = 0;
+		p = z + 1;
+	} while (*z);
+}
+void path_entry_unbounded(const char *p)
+{
+	char b[64];
+	const char *z = strchr(p, ':');
+	// ruleid: raptor-use-of-source-size-in-copy
+	memcpy(b, p, z - p);
+}
