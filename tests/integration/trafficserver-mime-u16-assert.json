@@ -2,6 +2,7 @@
   "name": "trafficserver-mime-u16-assert",
   "cve": "CVE-2026-58154",
   "aliases": [
+    "CVE-2026-58152",
     "CVE-2026-58158"
   ],
   "repo": "https://github.com/apache/trafficserver.git",

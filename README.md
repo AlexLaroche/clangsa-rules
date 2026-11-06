@@ -132,7 +132,7 @@ after a line matching `after` (a label, a function header).
 | `freerdp-avc444-buffer-alloc` | CVE-2026-55191 | `raptor.UncheckedAllocProduct` | FreeRDP `3248c0c` → `97f40b9` |
 | `open-isns-attr-decode-free` | CVE-2026-55995 | `raptor.FreedFieldNotCleared` | open-isns `296d533` → `56718d4` |
 | `hydra-ntlm-response-sprintf` | CVE-2026-56766 | `raptor.UnboundedCopyToStackArray` | THC-Hydra `2d7330f` → `9cc84c2` |
-| `trafficserver-mime-u16-assert` | CVE-2026-58154 (CVE-2026-58158) | `raptor.AssertOnlyBound` | Apache Traffic Server `9d13175` → `8a7a963` |
+| `trafficserver-mime-u16-assert` | CVE-2026-58154 (CVE-2026-58152, CVE-2026-58158) | `raptor.AssertOnlyBound` | Apache Traffic Server `9d13175` → `8a7a963` |
 | `thrift-header-negative-string-length` | CVE-2026-58662 | `raptor.NegativeLengthUnchecked` | Thrift `0ab16e3` → `f961cdb` |
 | `freerdp-rdpsnd-client-formats-free` | CVE-2026-63652 | `raptor.FreedFieldNotCleared` | FreeRDP `2701474` → `caf653c` |
 | `libssh2-sftp-open-double-free` | CVE-2026-66032 | `raptor.DoubleFree` | libssh2 `f784c21` → `5e47761` |
