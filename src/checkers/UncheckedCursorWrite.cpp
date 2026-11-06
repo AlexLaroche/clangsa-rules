@@ -17,9 +17,12 @@
 //   - never compares the cursor, P, or a variable of the step in a relational
 //     comparison (<, <=, >, >=),
 //   - is not told how far to go: no loop around the cursor step has a
-//     condition that mentions a parameter or a local initialised from one
-//     (so `for (y = 0; y < rows; ++y)` and `int lines = h; while (lines--)`
-//     copy loops are not writers in this sense), and
+//     condition that mentions a parameter or a local set only from one (or
+//     from constants) and never stepped by ++/-- (so `for (y = 0; y < rows;
+//     ++y)`, `int lines = h; while (lines--)` and `w = c->w; if (..) w =
+//     c->width - x;` copy loops are not writers in this sense), and the loops
+//     around the step do not all run a constant number of times (an 8x8
+//     block: `for (i = 0; i < 8; i++, dst += stride)`), and
 //   - does not hand the room to the callee that writes and move by what it
 //     reports using (`put(c, out, &room); out += room;`);
 //   - does not count down the room it has (`bufsize -= sz`, `*left -= n`,
@@ -39,6 +42,7 @@
 //   curr_table + total_size >= start + size
 // before writing.
 #include "Common.h"
+#include <functional>
 #include "MemFlow.h"
 #include "Registry.h"
 #include "clang/AST/ParentMap.h"
@@ -86,6 +90,8 @@ const VarDecl *refVar(const Expr *E) {
 // The variable at the root of an lvalue such as c[i], *c, c->f, c[i].f.
 const VarDecl *writtenBase(const Expr *E) {
   E = raptor::strip(E);
+  if (isa_and_nonnull<DeclRefExpr>(E))
+    return nullptr; // `c = ...` sets the cursor, it writes nothing through it
   while (E) {
     if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
       E = raptor::strip(ASE->getBase());
@@ -98,6 +104,10 @@ const VarDecl *writtenBase(const Expr *E) {
       if (UO->getOpcode() != UO_Deref)
         return nullptr;
       return refVar(UO->getSubExpr());
+    } else if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+      // c[i]: the root of the subscript (a plain variable is not written
+      // through, so only reached from a subscript or a `.` member).
+      return dyn_cast<VarDecl>(DRE->getDecl());
     } else
       return nullptr;
   }
@@ -131,6 +141,80 @@ bool constPointee(const FunctionDecl *FD, unsigned I) {
     return false; // variadic: unknown, may write
   QualType T = FD->getParamDecl(I)->getType();
   return T->isPointerType() && T->getPointeeType().isConstQualified();
+}
+
+bool isLoopStmt(const Stmt *S) {
+  return isa<ForStmt>(S) || isa<WhileStmt>(S) || isa<DoStmt>(S);
+}
+
+// `for (i = C1; i < C2; i++)`: a counter set to a constant, compared to a
+// constant (or a const local holding one: `const int h = 8;`) and stepped by
+// one, possibly beside other steps (`i++, dst += stride`).
+bool fixedTrips(const Stmt *S, ASTContext &Ctx) {
+  const auto *F = dyn_cast<ForStmt>(S);
+  if (!F || !F->getInit() || !F->getCond() || !F->getInc())
+    return false;
+  const ValueDecl *V = nullptr;
+  auto isConst = [&](const Expr *E) {
+    E = E->IgnoreParenImpCasts();
+    Expr::EvalResult R;
+    if (!E->isValueDependent() && E->EvaluateAsInt(R, Ctx))
+      return true;
+    if (const auto *DR = dyn_cast<DeclRefExpr>(E))
+      if (const auto *VD = dyn_cast<VarDecl>(DR->getDecl()))
+        return VD->getType().isConstQualified() && VD->getInit() &&
+               !VD->getInit()->isValueDependent() &&
+               VD->getInit()->EvaluateAsInt(R, Ctx);
+    return false;
+  };
+  if (const auto *DS = dyn_cast<DeclStmt>(F->getInit())) {
+    if (!DS->isSingleDecl())
+      return false;
+    const auto *VD = dyn_cast<VarDecl>(DS->getSingleDecl());
+    if (!VD || !VD->getInit() || !isConst(VD->getInit()))
+      return false;
+    V = VD;
+  } else if (const auto *BO = dyn_cast<BinaryOperator>(F->getInit())) {
+    const auto *DR = dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParenImpCasts());
+    if (BO->getOpcode() != BO_Assign || !DR || !isConst(BO->getRHS()))
+      return false;
+    V = DR->getDecl();
+  } else
+    return false;
+  auto isV = [&](const Expr *E) {
+    const auto *DR = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+    return DR && DR->getDecl() == V;
+  };
+  const auto *C = dyn_cast<BinaryOperator>(F->getCond()->IgnoreParenImpCasts());
+  if (!C || !C->isRelationalOp() ||
+      !((isV(C->getLHS()) && isConst(C->getRHS())) ||
+        (isV(C->getRHS()) && isConst(C->getLHS()))))
+    return false;
+  // The increment: ++V, or a comma list holding it.
+  std::function<bool(const Expr *)> steps = [&](const Expr *E) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *U = dyn_cast<UnaryOperator>(E))
+      return U->isIncrementDecrementOp() && isV(U->getSubExpr());
+    if (const auto *B = dyn_cast<BinaryOperator>(E); B && B->getOpcode() == BO_Comma)
+      return steps(B->getLHS()) || steps(B->getRHS());
+    return false;
+  };
+  if (!steps(F->getInc()))
+    return false;
+  // V is not changed in the body.
+  bool Changed = false;
+  std::function<void(const Stmt *)> scan = [&](const Stmt *X) {
+    if (!X)
+      return;
+    if (const auto *U = dyn_cast<UnaryOperator>(X); U && U->isIncrementDecrementOp() && isV(U->getSubExpr()))
+      Changed = true;
+    if (const auto *B = dyn_cast<BinaryOperator>(X); B && B->isAssignmentOp() && isV(B->getLHS()))
+      Changed = true;
+    for (const Stmt *Ch : X->children())
+      scan(Ch);
+  };
+  scan(F->getBody());
+  return !Changed;
 }
 
 class Analysis {
@@ -197,6 +281,34 @@ private:
                 Controlled.insert(VD);
         }
       });
+    // Locals every write of which reads a caller value or sets a constant
+    // (`w = c->cur_w; if (..) w = c->width - x;`, `x = 0;`), never stepped by ++/-- (a counter such as
+    // `for (len = root_bits + 1; ..; ++len)` counts on its own).
+    for (int Pass = 0; Pass < 3; ++Pass) {
+      llvm::DenseMap<const VarDecl *, bool> AllFromCaller;
+      walk(Body, [&](const Stmt *S) {
+        const VarDecl *L = nullptr;
+        bool From = false;
+        if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->isAssignmentOp()) {
+          L = refVar(BO->getLHS());
+          From = mentions(BO->getRHS(), Controlled) ||
+                 (!BO->getRHS()->isValueDependent() &&
+                  BO->getRHS()->isIntegerConstantExpr(Ctx));
+        } else if (const auto *UO = dyn_cast<UnaryOperator>(S);
+                   UO && UO->isIncrementDecrementOp()) {
+          L = refVar(UO->getSubExpr());
+        }
+        if (!L || !L->hasLocalStorage() || isa<ParmVarDecl>(L) ||
+            !L->getType()->isIntegerType())
+          return;
+        auto [It, New] = AllFromCaller.try_emplace(L, From);
+        if (!New)
+          It->second = It->second && From;
+      });
+      for (auto &[L, All] : AllFromCaller)
+        if (All && (!L->getInit() || mentions(L->getInit(), Controlled)))
+          Controlled.insert(L);
+    }
     // Room counters: Controlled values and plain copies of them (`n = cc;`).
     VarSet Room = Controlled;
     walk(Body, [&](const Stmt *S) {
@@ -228,8 +340,10 @@ private:
                 Step = Sum->getRHS();
         }
         if (Step && !Step->isValueDependent() && !Step->isIntegerConstantExpr(Ctx)) {
-          bool InLoop = false;
+          bool InLoop = false, AllFixed = true;
           for (const Stmt *Up = PM.getParent(S); Up; Up = PM.getParent(Up)) {
+            if (isLoopStmt(Up))
+              AllFixed &= fixedTrips(Up, Ctx);
             const Stmt *Cond = nullptr;
             if (const auto *F = dyn_cast<ForStmt>(Up))
               Cond = F->getCond();
@@ -243,8 +357,9 @@ private:
             if (Cond && mentions(Cond, Controlled))
               LoopBoundByCaller = true;
           }
-          // A single offset is not a cursor walk.
-          if (InLoop) {
+          // A single offset is not a cursor walk; nor are steps in loops that
+          // all run a constant number of times (an 8x8 block).
+          if (InLoop && !AllFixed) {
             Advances = true;
             varsIn(Step, StepVars);
           }
@@ -466,6 +581,28 @@ bool assignsFrom(const Stmt *S, const Keys &Targets, const Keys &From) {
   return Hit;
 }
 
+// Does S read K other than as the target of an assignment (`i = i + 1`
+// reads i, `i = 0` does not)?
+bool readsKey(const Stmt *S, const std::string &K) {
+  if (!S)
+    return false;
+  if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->getOpcode() == BO_Assign)
+    return readsKey(BO->getRHS(), K);
+  if (const auto *DS = dyn_cast<DeclStmt>(S)) {
+    for (const Decl *D : DS->decls())
+      if (const auto *VD = dyn_cast<VarDecl>(D); VD && VD->getInit() && readsKey(VD->getInit(), K))
+        return true;
+    return false;
+  }
+  if (isa<DeclRefExpr>(S) || isa<MemberExpr>(S))
+    if (raptor_mem::keyOf(cast<Expr>(S)) == K)
+      return true;
+  for (const Stmt *C : S->children())
+    if (readsKey(C, K))
+      return true;
+  return false;
+}
+
 class RunLoops {
   ParentMap PM;
 
@@ -553,6 +690,12 @@ private:
           if (const auto *VD = dyn_cast<VarDecl>(D))
             Own.insert(VD->getNameAsString());
     }
+    // A run that restarts the index (`for (i = 0; ...)`, or a shadowing
+    // `for (int i = 0; ...)`) does not continue the outer position.
+    if (const auto *F = dyn_cast<ForStmt>(R))
+      for (const std::string &K : Index)
+        if (Own.count(K) && !readsKey(F->getInit(), K))
+          return nullptr;
     // The count: what else the inner condition depends on.
     Keys Count;
     keysIn(RCond, Count);

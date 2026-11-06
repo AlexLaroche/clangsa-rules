@@ -15,13 +15,17 @@
 // constant (a constant factor is raptor.IntegerWraparound's business). A
 // product computed in size_t on a 64-bit target does not match.
 // Sanitizers, on the variables and fields used by the factors:
-//   - a relational comparison containing a division (`a > INT_MAX / b`);
+//   - a relational comparison containing a division (`a > INT_MAX / b`), or
+//     the product of both factors computed in a wider type (`(int64_t)a * b
+//     >= INT32_MAX`);
 //   - a call to an overflow helper (name containing "overflow", "mult" or
 //     "check_size", e.g. __builtin_mul_overflow, av_size_mult);
 //   - both factors bounded from above by constants whose product fits the
 //     product's type, before the allocation: `if (w > 4096 || h > 4096)
 //     return;`, `if (w > C) w = C;`, or `if (w < C && h < C)` around it. A
-//     lower bound (`if (w <= 0 || h <= 0) return;`) does not count.
+//     lower bound (`if (w <= 0 || h <= 0) return;`) does not count;
+//   - factors this function only sets from narrow values, in a block around
+//     the allocation (`n = AV_RL16(p); m = AV_RL16(q); malloc(n * m)`).
 //
 // CVE-2026-70628 / CVE-2026-70632 (FFmpeg < 9.0, libavformat/rawutils.c),
 // CVE-2016-9118 (OpenJPEG < 2.2.0, opj_image_create), CVE-2026-18300 (GEGL
@@ -31,6 +35,7 @@
 #include "Common.h"
 #include "MemFlow.h"
 #include "Registry.h"
+#include "clang/AST/ParentMap.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/Lex/Lexer.h"
@@ -269,6 +274,54 @@ public:
       }
     });
 
+    // Value widths of slots that this function only ever sets from narrow
+    // values, each in a block around the use (`vmd->frame_count =
+    // AV_RL16(..)`): key -> (widest value, the writes).
+    ParentMap PMap(const_cast<Stmt *>(Body));
+    std::map<std::string, std::pair<unsigned, std::vector<const Stmt *>>> Narrow;
+    Keys Unknown;
+    walk(Body, [&](const Stmt *S) {
+      if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->isAssignmentOp()) {
+        std::string K = slotKey(BO->getLHS());
+        if (K.empty())
+          return;
+        if (BO->getOpcode() != BO_Assign) {
+          Unknown.insert(K);
+          return;
+        }
+        auto &E = Narrow[K];
+        E.first = std::max(E.first, raptor::valueBits(BO->getRHS(), Ctx));
+        E.second.push_back(BO);
+      } else if (const auto *UO = dyn_cast<UnaryOperator>(S);
+                 UO && (UO->isIncrementDecrementOp() || UO->getOpcode() == UO_AddrOf)) {
+        if (std::string K = slotKey(UO->getSubExpr()); !K.empty())
+          Unknown.insert(K);
+      }
+    });
+    auto slotBits = [&](const Expr *E, const Stmt *Use) {
+      unsigned Full = raptor::valueBits(E, Ctx);
+      std::string K = slotKey(raptor::strip(E));
+      auto It = Narrow.find(K);
+      if (K.empty() || Unknown.count(K) || It == Narrow.end())
+        return Full;
+      const SourceManager &SM = Ctx.getSourceManager();
+      for (const Stmt *W : It->second.second) {
+        if (!SM.isBeforeInTranslationUnit(SM.getExpansionLoc(W->getEndLoc()),
+                                          SM.getExpansionLoc(Use->getBeginLoc())))
+          return Full;
+        // The write's block encloses the use.
+        const Stmt *Blk = PMap.getParent(W);
+        while (Blk && !isa<CompoundStmt>(Blk))
+          Blk = PMap.getParent(Blk);
+        bool Encloses = false;
+        for (const Stmt *P = Use; P && !Encloses; P = PMap.getParent(P))
+          Encloses = P == Blk;
+        if (!Encloses)
+          return Full;
+      }
+      return std::min(Full, It->second.first);
+    };
+
     // An operand built only from constants and locals that are only ever
     // assigned constants (`stride = 4 * MAXRLVLS;`).
     auto constant = [&](const Expr *E) {
@@ -330,8 +383,11 @@ public:
             Keys L, R;
             keysIn(Mul->getLHS(), L);
             keysIn(Mul->getRHS(), R);
+            QualType MT = Mul->getType();
             if (L.empty() || R.empty() || constant(Mul->getLHS()) ||
                 constant(Mul->getRHS()) ||
+                slotBits(Mul->getLHS(), CE) + slotBits(Mul->getRHS(), CE) <=
+                    Ctx.getIntWidth(MT) - (MT->isSignedIntegerType() ? 1 : 0) ||
                 guarded(Body, CE, Mul, L, R, Seen, Ctx))
               continue;
             // Field factors validated elsewhere in the file.
@@ -552,12 +608,19 @@ private:
       if (G)
         return;
       if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
-        // a > MAX / b, n <= MAX / c
+        // a > MAX / b, n <= MAX / c; or the product of both factors
+        // computed wider than the allocation's and compared to a limit
+        // (`(int64_t)a * b >= INT32_MAX`, FFmpeg lafdec).
         if (BO->isRelationalOp() && !LoopConds.count(BO) && mentions(BO, F))
           walk(BO, [&](const Stmt *X) {
-            if (const auto *D = dyn_cast<BinaryOperator>(X))
+            if (const auto *D = dyn_cast<BinaryOperator>(X)) {
               if (D->getOpcode() == BO_Div)
                 G = true;
+              if (D->getOpcode() == BO_Mul && D->getType()->isIntegerType() &&
+                  Ctx.getIntWidth(D->getType()) > Ctx.getIntWidth(Mul->getType()) &&
+                  mentions(D, L) && mentions(D, R))
+                G = true;
+            }
           });
       } else if (const auto *CE = dyn_cast<CallExpr>(S)) {
         std::string N = raptor::calleeName(CE).lower();

@@ -1,6 +1,7 @@
 // raptor.LoopBoundIgnoresCapacityParam: a function takes an output buffer D
 // and its capacity C (an integer parameter, or an in/out count `*C`, named
-// like a size: *size*, *len*, *cnt*, *count*, *max*, *cap*, *num*), and fills
+// like a size: *size*, *len*, *cnt*, *count*, *cap*, *num*, or just `max`;
+// not a row stride: *linesize*, *stride*, *pitch*, *step*), and fills
 // D in a loop `for (i = 0; i < B; i++) D[i] = ...` (or `D[i].f = ...`) whose
 // bound B is never bounded by C (CWE-787, CWE-120):
 //
@@ -29,10 +30,16 @@ using namespace raptor::buf;
 namespace {
 bool sizeName(StringRef N) {
   std::string L = N.lower();
-  for (const char *W : {"size", "len", "cnt", "count", "max", "cap", "num"})
+  // A row stride (linesize, stride, pitch, step) is not a capacity.
+  for (const char *W : {"linesize", "stride", "pitch", "step"})
+    if (L.find(W) != std::string::npos)
+      return false;
+  for (const char *W : {"size", "len", "cnt", "count", "cap", "num"})
     if (L.find(W) != std::string::npos)
       return true;
-  return false;
+  // `max` alone is a capacity; `max_shift`, `max_val` are value limits
+  // (FFmpeg quantize_lpc_coefs).
+  return raptor::isOneOf(L, {"max", "nmax", "maxn", "max_n", "n_max"});
 }
 
 // Does a count parameter's name name the buffer (`nendpoints` and

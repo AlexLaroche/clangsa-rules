@@ -222,3 +222,29 @@ long copy_footer(char *dst, const char *footer, long room) {
   memcpy(dst, footer, footerSz);
   return footerSz;
 }
+
+// Values read by a 16-bit reader that returns unsigned int: never negative,
+// also when scaled (FFmpeg dfa decode_tdlt: `v = bytestream2_get_le16(gb) * 2;
+// if (frame - frame_end < v) fail; frame += v;`, sanm `dlen =
+// bytestream2_get_le16u(gb)`).
+struct GetByte {
+  const uint8_t *p, *end;
+};
+unsigned int bytestream2_get_le16(GetByte *g);
+unsigned int bytestream2_get_le32(GetByte *g);
+int skip16(GetByte *g, uint8_t *frame, uint8_t *frame_end) {
+  int v = bytestream2_get_le16(g) * 2;
+  if (frame_end - frame < v)
+    return -1;
+  // ok: raptor-negative-length-unchecked
+  frame += v;
+  return 0;
+}
+int skip32(GetByte *g, uint8_t *frame, uint8_t *frame_end) {
+  int v = bytestream2_get_le32(g);
+  if (frame_end - frame < v)
+    return -1;
+  // ruleid: raptor-negative-length-unchecked
+  frame += v;
+  return 0;
+}

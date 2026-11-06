@@ -158,3 +158,61 @@ void grow_or_die(Buf *b, size_t n)
 		fatal(1, "out of memory");
 	b->buf = p;
 }
+
+// A dimension field unrelated to the reallocated buffer: neither the size
+// nor the condition guarding the reallocation involves it (FFmpeg
+// frame_copy_props: `dst->width = src->width;` then `av_realloc_array(
+// dst->extended_buf, src->nb_extended_buf, ...)` under a test of
+// nb_extended_buf).
+typedef struct {
+	int width, height, nb_ext;
+	void **ext;
+} Frame;
+void *av_realloc_array(void *p, size_t n, size_t size);
+int copy_props(Frame *dst, const Frame *src)
+{
+	// ok: raptor-capacity-updated-before-realloc
+	dst->width = src->width;
+	if (dst->nb_ext != src->nb_ext) {
+		void *tmp = av_realloc_array(dst->ext, src->nb_ext, sizeof(void *));
+		if (!tmp)
+			return -1;
+		dst->ext = tmp;
+		dst->nb_ext = src->nb_ext;
+	}
+	return 0;
+}
+
+// Reset to zero: the object claims no capacity at all (FFmpeg decode_header:
+// `s->w = 0;` before reallocating s->channels).
+typedef struct {
+	int w, nb;
+	int *channels;
+} Exr;
+int exr_header(Exr *s, int n)
+{
+	// ok: raptor-capacity-updated-before-realloc
+	s->w = 0;
+	int *c = av_realloc_array(s->channels, n, sizeof(int));
+	if (!c)
+		return -1;
+	s->channels = c;
+	return 0;
+}
+
+// Sized through another field computed from it.
+typedef struct {
+	int size, win_size;
+	float *lut;
+} Synth;
+int synth_config(Synth *s, int h)
+{
+	// ruleid: raptor-capacity-updated-before-realloc
+	s->size = h / 2;
+	s->win_size = s->size * 2;
+	float *lut = av_realloc_array(s->lut, s->win_size, sizeof(float));
+	if (!lut)
+		return -1;
+	s->lut = lut;
+	return 0;
+}

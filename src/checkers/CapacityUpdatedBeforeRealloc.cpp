@@ -14,6 +14,9 @@
 // an `if` after the call that tests its result for null and exits (return,
 // goto, break, throw; not a call that ends the program) without assigning F,
 // the assignment's block holding the call (same path, not another branch).
+// A field matched only by its name must describe the buffer: the size
+// arguments, or an if around the call, read it, its assigned value, or a
+// field computed from it before the call; `f = 0` is not reported.
 //
 // CVE-2026-33984 (FreeRDP clear.c resize_vbar_entry), CVE-2026-33986
 // (FreeRDP h264.c yuv_ensure_buffer: h264->width/height before the planes).
@@ -85,6 +88,31 @@ bool nullTest(const Expr *Cond, const std::string &V, ASTContext &Ctx) {
              B->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
   });
   return T;
+}
+
+// The fields and variables E reads as values: `src->width` reads the field
+// width, not the object src.
+void reads(const Stmt *E, std::set<const Decl *> &Out) {
+  std::set<const Stmt *> Bases;
+  walk(E, [&](const Stmt *S) {
+    if (const auto *ME = dyn_cast<MemberExpr>(S)) {
+      Out.insert(ME->getMemberDecl());
+      Bases.insert(raptor::strip(ME->getBase()));
+    }
+  });
+  walk(E, [&](const Stmt *S) {
+    if (const auto *DR = dyn_cast<DeclRefExpr>(S); DR && !Bases.count(DR))
+      Out.insert(DR->getDecl());
+  });
+}
+
+bool readsAny(const Stmt *E, const std::set<const Decl *> &Ds) {
+  std::set<const Decl *> R;
+  reads(E, R);
+  for (const Decl *D : R)
+    if (Ds.count(D))
+      return true;
+  return false;
 }
 
 class CapacityUpdatedBeforeReallocChecker : public Checker<check::ASTCodeBody> {
@@ -163,6 +191,32 @@ public:
             continue;
           if (!raptor_mem::isSizeField(A.F, R.G) && !dimension(A.F->getName()))
             continue;
+          // `f = 0` claims no capacity (FFmpeg exr decode_header `s->w = 0`).
+          if (auto V = raptor::buf::intValue(A.BO->getRHS(), Ctx); V && *V <= 0)
+            continue;
+          // A field matched by its name must describe this buffer: the
+          // reallocation size, or a condition it runs under, reads the field
+          // or what was assigned to it, directly or through another field
+          // computed from it before the call (FFmpeg frame_copy_props sets
+          // dst->width, then reallocates extended_buf for nb_extended_buf).
+          if (!raptor_mem::isSizeField(A.F, R.G)) {
+            std::set<const Decl *> Rel{A.F};
+            reads(A.BO->getRHS(), Rel);
+            for (const Assign &B : Assigns)
+              if (B.BO != A.BO && before(loc(A.BO, true), loc(B.BO)) &&
+                  before(loc(B.BO, true), loc(R.CE)) &&
+                  readsAny(B.BO->getRHS(), Rel))
+                Rel.insert(B.F);
+            bool Related = false;
+            for (unsigned I = 1; I < R.CE->getNumArgs(); ++I)
+              Related |= readsAny(R.CE->getArg(I), Rel);
+            for (const Stmt *P = PM.getParent(R.CE); P && !Related;
+                 P = PM.getParent(P))
+              if (const auto *PI = dyn_cast<IfStmt>(P))
+                Related |= readsAny(PI->getCond(), Rel);
+            if (!Related)
+              continue;
+          }
           // Same path: the block holding the assignment holds the call.
           const CompoundStmt *Blk = raptor::buf::enclosingBlock(A.BO, PM);
           bool Holds = false;

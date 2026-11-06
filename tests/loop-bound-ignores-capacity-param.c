@@ -158,3 +158,37 @@ void copy_items(int *dst, unsigned long dst_len, const int *src,
 		// ruleid: raptor-loop-bound-ignores-capacity-param
 		dst[i] = src[i];
 }
+// A line size is the distance between rows, not the room in the buffer
+// (FFmpeg vf_hue apply_luma_lut10(ldst, dst_linesize, lsrc, src_linesize,
+// w, h), utvideodsp restore_rgb_planes, screenpresso sum_delta_flipped).
+void apply_lut(unsigned short *ldst, const int dst_linesize,
+	       const unsigned short *lsrc, const int src_linesize,
+	       const unsigned short *lut, int w, int h)
+{
+	int i;
+	while (h--) {
+		for (i = 0; i < w; i++)
+			// ok: raptor-loop-bound-ignores-capacity-param
+			ldst[i] = lut[lsrc[i]];
+		lsrc += src_linesize;
+		ldst += dst_linesize;
+	}
+}
+// A value limit named max_* is not the buffer's room (FFmpeg lpc.c
+// quantize_lpc_coefs(lpc_in, order, precision, lpc_out, shift, min_shift,
+// max_shift, zero_shift)).
+void quantize(const double *in, int order, int *out, int min_shift, int max_shift)
+{
+	int i;
+	for (i = 0; i < order; i++)
+		// ok: raptor-loop-bound-ignores-capacity-param
+		out[i] = (int)in[i] << (max_shift - min_shift);
+}
+// A parameter named just `max` is a capacity.
+void fill_max(int *out, unsigned max, unsigned n)
+{
+	unsigned i;
+	for (i = 0; i < n; i++)
+		// ruleid: raptor-loop-bound-ignores-capacity-param
+		out[i] = 0;
+}

@@ -13,8 +13,9 @@
 // decoder), or it is set from an expression with a
 // call, a dereference or a subscript (a value kept in a field is program
 // state, not decoded here), and not a narrower unsigned value widened
-// (`int n = p[0]`) or a string length (`(long)strlen(s)`), which cannot be
-// negative.
+// (`int n = p[0]`), a value from a reader named for a narrow width
+// (`bytestream2_get_le16(gb) * 2`, `avio_rb24`) or a string length
+// (`(long)strlen(s)`), which cannot be negative.
 // Upper check: a relational comparison of the length, done in a signed type,
 // against something other than a constant <= 1, that bounds it from above on
 // the path that goes on: `if (len > X) fail;` or `if (len < X) use;`. One
@@ -36,6 +37,7 @@
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include <functional>
+#include <regex>
 
 using namespace clang;
 using namespace ento;
@@ -58,11 +60,68 @@ const VarDecl *localOf(const Expr *E) {
   return VD && VD->hasLocalStorage() && !isa<ParmVarDecl>(VD) ? VD : nullptr;
 }
 
+// The width of the values E can take when it is built from a reader named
+// for a narrow width (`bytestream2_get_le16`, `avio_rb24`, `avio_r8`,
+// `get_byte`, which may return unsigned int), scaled by constants; 0 when
+// unknown.
+unsigned readerBits(const Expr *E, ASTContext &Ctx) {
+  E = raptor::strip(E);
+  if (const auto *CE = dyn_cast<CallExpr>(E)) {
+    std::string N = raptor::calleeName(CE).lower();
+    static const std::regex Re("(^|_|[a-z])(le|be|rl|rb|r|u|uint|get_)(8|16|24)u?$");
+    std::smatch M;
+    if (std::regex_search(N, M, Re))
+      return std::stoi(M[3].str());
+    if (N.size() >= 4 && N.compare(N.size() - 4, 4, "byte") == 0)
+      return 8;
+    return 0;
+  }
+  const auto *BO = dyn_cast<BinaryOperator>(E);
+  if (!BO)
+    return 0;
+  auto constBits = [&](const Expr *X) -> unsigned {
+    Expr::EvalResult R;
+    if (X->isValueDependent() || !X->EvaluateAsInt(R, Ctx) || R.Val.getInt().isNegative())
+      return 0;
+    return std::max(1u, R.Val.getInt().getActiveBits());
+  };
+  unsigned L = readerBits(BO->getLHS(), Ctx), Rb = readerBits(BO->getRHS(), Ctx);
+  unsigned CL = constBits(BO->getLHS()), CR = constBits(BO->getRHS());
+  switch (BO->getOpcode()) {
+  case BO_Mul:
+    if (L && CR)
+      return L + CR;
+    if (Rb && CL)
+      return Rb + CL;
+    return 0;
+  case BO_Add:
+    if (L && (Rb || CR))
+      return std::max(L, Rb ? Rb : CR) + 1;
+    if (Rb && CL)
+      return std::max(Rb, CL) + 1;
+    return 0;
+  case BO_Shl:
+    if (L && CR) {
+      Expr::EvalResult R;
+      BO->getRHS()->EvaluateAsInt(R, Ctx);
+      return L + (unsigned)R.Val.getInt().getZExtValue();
+    }
+    return 0;
+  case BO_And:
+    return CR ? CR : CL;
+  default:
+    return 0;
+  }
+}
+
 // A value from the data that may be negative in V: not a narrower unsigned
-// value widened (`int n = p[0]`, `long off = le32dec(p)`).
+// value widened (`int n = p[0]`, `long off = le32dec(p)`), nor one from a
+// narrow reader (`int v = bytestream2_get_le16(gb) * 2`).
 bool fromData(const Expr *E, const VarDecl *V, ASTContext &Ctx) {
   QualType T = E->IgnoreParenImpCasts()->getType();
   if (T->isUnsignedIntegerType() && Ctx.getTypeSize(T) < Ctx.getTypeSize(V->getType()))
+    return false;
+  if (unsigned B = readerBits(E, Ctx); B && B < Ctx.getTypeSize(V->getType()))
     return false;
   // A string length (`(long)strlen(s)`): never negative in practice, even
   // when kept in a signed type of the same width.

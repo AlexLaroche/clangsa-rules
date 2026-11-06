@@ -10,12 +10,17 @@
 // X >= Y + K1. Subtraction: `X - (Y + K2)`, `X - Y - K2`, with the same
 // non-constant terms Y and K2 > K1 for the strongest guard. X is a variable
 // or field of unsigned type (casts aside); it is not reassigned after the
-// guard. Values never checked from below are not this rule's form.
+// guard. Values never checked from below are not this rule's form. The
+// else branch of `if (X <= K)` gives X >= K + 1. A narrow slot promoted to
+// int (`uint8_t - 64`) goes negative rather than wrapping: it is reported
+// when stored, returned, passed or used as an index, not as an operand of
+// further arithmetic (`(lumshift - 64) * 64`).
 //
 // CVE-2026-28525 (swupdate mg_http_multipart_continue_wait_for_chunk),
 // CVE-2026-73252 (mongoose mg_tls_recv_record: `if (msgsz < 16) return -1;`
 // then `msg[msgsz - 16 - 1]`).
 #include "Common.h"
+#include "clang/AST/ParentMap.h"
 #include "MemFlow.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
@@ -119,6 +124,7 @@ struct Bound {
   int64_t K;
   const IfStmt *If;
   bool Around;
+  bool Else = false; // holds in the else branch of If
 };
 
 // `A op B` holding with truth V: the lower bounds it gives on each
@@ -196,6 +202,21 @@ public:
             Bounds.push_back(Bd);
           }
         }
+        // `if (x <= 8) ... else x - 9`: the else branch has x >= 9.
+        if (If->getElse()) {
+          Ts.clear();
+          tests(If->getCond(), false, Ts);
+          for (auto [BO, V] : Ts) {
+            std::vector<Bound> Bs;
+            lowerBounds(BO, V, Ctx, Bs);
+            for (Bound &Bd : Bs) {
+              Bd.If = If;
+              Bd.Around = true;
+              Bd.Else = true;
+              Bounds.push_back(Bd);
+            }
+          }
+        }
         if (Exit) {
           Ts.clear();
           tests(If->getCond(), false, Ts);
@@ -220,6 +241,27 @@ public:
           UO && UO->isIncrementDecrementOp())
         Assigns.push_back(
             {raptor_mem::keyOf(UO->getSubExpr()), loc(UO, false)});
+    });
+
+    // A narrow slot promoted to int (`uint8_t - 64`) gives a negative value,
+    // not a wrapped one. Inside a larger signed computation that is meant
+    // (FFmpeg vc1 INIT_LUT `(lumshift - 64) * 64`); stored, returned, passed
+    // or used as an index it is the bug (mongoose `r = msgsz - 16 - 1;`,
+    // `msg[msgsz - 16 - 1]`).
+    ParentMap PM(const_cast<Stmt *>(Body));
+    auto inArithmetic = [&](const BinaryOperator *Sub) {
+      const Stmt *P = PM.getParentIgnoreParenCasts(Sub);
+      while (P && isa<BinaryOperator>(P) &&
+             cast<BinaryOperator>(P)->getOpcode() == BO_Sub &&
+             !cast<BinaryOperator>(P)->getType()->isPointerType())
+        P = PM.getParentIgnoreParenCasts(P);
+      const auto *BO = dyn_cast_or_null<BinaryOperator>(P);
+      return BO && !BO->getType()->isPointerType() &&
+             (BO->isMultiplicativeOp() || BO->isShiftOp() || BO->isAdditiveOp() ||
+              BO->isBitwiseOp());
+    };
+    llvm::erase_if(Subs, [&](const BinaryOperator *Sub) {
+      return !Sub->getType()->isUnsignedIntegerType() && inArithmetic(Sub);
     });
 
     // Only whole chains: `(cols - 3) - desclen` is one subtraction.
@@ -259,7 +301,8 @@ public:
         if (Bd.X != X || Bd.Y != Y)
           continue;
         bool Inside = false;
-        walk(Bd.If->getThen(), [&](const Stmt *N) { Inside |= N == Sub; });
+        walk(Bd.Else ? Bd.If->getElse() : Bd.If->getThen(),
+             [&](const Stmt *N) { Inside |= N == Sub; });
         if (Bd.Around ? !Inside : (Inside || !before(loc(Bd.If, true), At)))
           continue;
         if (!Best || Bd.K > *Best)

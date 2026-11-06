@@ -45,7 +45,9 @@ int recv_record(uint8_t *msg, uint16_t msgsz, uint8_t *type)
 	handler(msg, msgsz - 16);
 	// ruleid: raptor-unchecked-unsigned-subtraction
 	*type = msg[msgsz - 16 - 1];
-	return 0;
+	// ruleid: raptor-unchecked-unsigned-subtraction
+	int r = msgsz - 16 - 1;
+	return r;
 }
 
 // The fix: the check covers the subtraction.
@@ -129,4 +131,39 @@ size_t column(size_t cols, size_t desclen)
 		// ok: raptor-unchecked-unsigned-subtraction
 		return (cols - 3) - desclen;
 	return 0;
+}
+
+// A field narrower than int is promoted: the subtraction is signed and does
+// not wrap (FFmpeg vc1 INIT_LUT: `uint8_t lumshift; if (lumshift > 31)
+// shift = (lumshift - 64) * 64;`).
+int lut_shift(unsigned char lumshift)
+{
+	if (lumshift > 31)
+		// ok: raptor-unchecked-unsigned-subtraction
+		return (lumshift - 64) * 64;
+	return lumshift << 6;
+}
+
+// The else branch of `if (x <= 8)` has x >= 9 (FFmpeg dirac
+// ff_dirac_parse_sequence_header: `if (idx <= 8) ... else tab[idx - 9]`).
+int frame_rate(unsigned idx, const int *a, const int *b)
+{
+	if (idx > 0) {
+		if (idx <= 8)
+			return a[idx];
+		else
+			// ok: raptor-unchecked-unsigned-subtraction
+			return b[idx - 9];
+	}
+	return 0;
+}
+
+// The else branch of `if (x <= 8)` does not give x >= 10.
+int frame_rate_bad(unsigned idx, const int *a, const int *b)
+{
+	if (idx <= 8)
+		return a[idx];
+	else
+		// ruleid: raptor-unchecked-unsigned-subtraction
+		return b[idx - 10];
 }

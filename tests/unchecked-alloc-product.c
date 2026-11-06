@@ -371,3 +371,48 @@ void *alloc_other(Cp *cp)
 	// ruleid: raptor-unchecked-alloc-product
 	return malloc(cp->other_w * cp->other_h);
 }
+
+// The product of the factors, widened, compared to a limit (FFmpeg lafdec
+// laf_read_header: `if ((int64_t)bpp * st_count * (int64_t)sample_rate >=
+// INT32_MAX) return error; av_calloc(st_count * sample_rate, bpp)`).
+void *laf_alloc(int st_count, int sample_rate, int bpp)
+{
+	if ((int64_t)bpp * st_count * (int64_t)sample_rate >= INT32_MAX)
+		return 0;
+	// ok: raptor-unchecked-alloc-product
+	return calloc(st_count * sample_rate, bpp);
+}
+
+// A widened product of other values does not check these.
+void *laf_alloc_other(int st_count, int sample_rate, int bpp, int other)
+{
+	if ((int64_t)bpp * other >= INT32_MAX)
+		return 0;
+	// ruleid: raptor-unchecked-alloc-product
+	return calloc(st_count * sample_rate, bpp);
+}
+
+// Factors just read as 16-bit values: their product fits 32 bits unsigned
+// (FFmpeg sierravmd vmd_read_header: `vmd->frame_count = AV_RL16(..);
+// vmd->frames_per_block = AV_RL16(..); av_malloc_array(vmd->frame_count *
+// vmd->frames_per_block + sound_buffers, ..)`).
+typedef struct { unsigned frame_count, frames_per_block; } Vmd;
+static uint16_t rl16(const uint8_t *p) { return p[0] | p[1] << 8; }
+void *vmd_table(Vmd *vmd, const uint8_t *hdr)
+{
+	vmd->frame_count = rl16(hdr + 6);
+	vmd->frames_per_block = rl16(hdr + 18);
+	// ok: raptor-unchecked-alloc-product
+	return malloc(vmd->frame_count * vmd->frames_per_block);
+}
+
+// Read narrow on one path only: the other keeps whatever it held.
+void *vmd_table_maybe(Vmd *vmd, const uint8_t *hdr, int fresh)
+{
+	if (fresh) {
+		vmd->frame_count = rl16(hdr + 6);
+		vmd->frames_per_block = rl16(hdr + 18);
+	}
+	// ruleid: raptor-unchecked-alloc-product
+	return malloc(vmd->frame_count * vmd->frames_per_block);
+}

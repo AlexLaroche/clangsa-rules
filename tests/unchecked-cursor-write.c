@@ -495,3 +495,111 @@ int get_configs(const Cfg *cfgs, unsigned char *output, unsigned int *outputLen)
   // ok: raptor-unchecked-cursor-write
   return put_configs(cfgs, output, outputLen);
 }
+
+// An inner loop that restarts its own counter does not continue the outer
+// position, even when the counter has the same name (FFmpeg graph.c
+// `for (int i = 0; i < N; i++) c2->tab[i] = c->tab[i];` inside a loop over
+// slices with its own i; hevcdec `for (i = 0; i < size * size; i++)`).
+void copy_tables(int *dst, const int *src, int n, const int *sizes)
+{
+  for (int i = 0; i < n; i++) {
+    int m = sizes[i];
+    for (int i = 0; i < m; i++)
+      // ok: raptor-unchecked-cursor-write
+      dst[i] = src[i];
+  }
+}
+void reset_counter(short *coeffs, const short *in, int n, const int *log2)
+{
+  int i;
+  for (i = 0; i < n; i++) {
+    int size = 1 << log2[i];
+    for (i = 0; i < size * size; i++)
+      // ok: raptor-unchecked-cursor-write
+      coeffs[i] = in[i] >> 3;
+  }
+}
+
+// Fixed-size blocks: every loop around the step runs a constant number of
+// times, so the cursor moves a bounded distance (FFmpeg tiertexseqv
+// seq_decode_op2: `for (i = 0; i < 8; i++) { memcpy(dst, src, 8); dst +=
+// linesize; }`).
+struct frame { int linesize; };
+static void put_block(struct frame *f, const unsigned char *src, unsigned char *dst)
+{
+  for (int i = 0; i < 8; i++) {
+    for (int j = 0; j < 8; j++)
+      dst[j] = src[i * 8 + j];
+    dst += f->linesize;
+  }
+}
+void decode_blocks(struct frame *f, const unsigned char *src)
+{
+  unsigned char plane[64 * 8];
+  // ok: raptor-unchecked-cursor-write
+  put_block(f, src, plane);
+}
+
+// A fixed loop inside an unbounded one still walks without end.
+int more_rows(void);
+static void put_rows(struct frame *f, const unsigned char *src, unsigned char *dst)
+{
+  while (more_rows()) {
+    for (int i = 0; i < 8; i++) {
+      dst[0] = *src++;
+      dst += f->linesize;
+    }
+  }
+}
+void decode_rows(struct frame *f, const unsigned char *src)
+{
+  unsigned char plane[64 * 8];
+  // ruleid: raptor-unchecked-cursor-write
+  put_rows(f, src, plane);
+}
+
+// A constant count held in a const local, and the step in the for's
+// increment (FFmpeg h264qpel `const int h = 8; for (i = 0; i < h; i++)`,
+// sanm make_glyphs `for (j = 0; j < N; j++, pglyph += glyph_size)`).
+static void put_block_const(struct frame *f, const unsigned char *src, unsigned char *dst)
+{
+  const int h = 8;
+  for (int i = 0; i < h; i++, dst += f->linesize)
+    for (int j = 0; j < 8; j++)
+      dst[j] = src[i * 8 + j];
+}
+void decode_blocks_const(struct frame *f, const unsigned char *src)
+{
+  unsigned char plane[64 * 8];
+  // ok: raptor-unchecked-cursor-write
+  put_block_const(f, src, plane);
+}
+
+// Loop bounds assigned from the caller's object and clamped to its size
+// (FFmpeg vmnc put_cursor: `w = c->cur_w; if (c->width < c->cur_x + c->cur_w)
+// w = c->width - c->cur_x; ... for (j = 0; j < h; j++) { ...; dst += stride; }`).
+struct cursor { int w, h, x, width, *bits; };
+static void paint(unsigned char *dst, int stride, const struct cursor *c)
+{
+  int w, h, i, j, x;
+  w = c->w;
+  if (c->width < c->x + c->w)
+    w = c->width - c->x;
+  x = c->x;
+  if (x < 0) {
+    w += x;
+    x = 0;
+  }
+  h = c->h;
+  for (j = 0; j < h; j++) {
+    for (i = 0; i < w; i++)
+      dst[i] = (unsigned char)c->bits[j * c->w + i];
+    dst += stride;
+  }
+}
+void draw(const struct cursor *c, int stride)
+{
+  unsigned char plane[4096];
+  // ok: raptor-unchecked-cursor-write
+  paint(plane, stride, c);
+}

@@ -419,6 +419,57 @@ void chomp_bad(char *s, int n)
 		s[0] = 0;
 }
 
+// A test that the string is not empty: `*s &&`, or `!*s ||` / `len == 0 ||`
+// (FFmpeg format_line: `*line && line[strlen(line) - 1] != '\r'`,
+// sdp_parse_fmtp_config_h264: `*value == 0 || value[strlen(value) - 1] == ','`,
+// rtsp_parse_streaming_commands: `len == 0 || url[len - 1] != '/'`).
+int ends_with(const char *line, char *url)
+{
+	size_t len = strlen(url);
+	// ok: raptor-off-by-one
+	if (*line && line[strlen(line) - 1] != '\r')
+		return 1;
+	// ok: raptor-off-by-one
+	if (*line == 0 || line[strlen(line) - 1] == ',')
+		return 2;
+	// ok: raptor-off-by-one
+	if (line[0] != '\0' && line[strlen(line) - 1] == '/')
+		return 3;
+	// ok: raptor-off-by-one
+	if (len == 0 || url[len - 1] != '/')
+		return 4;
+	// ruleid: raptor-off-by-one
+	if (*url || line[strlen(line) - 1] == ',')
+		return 5;
+	return 0;
+}
+
+// A signed index tested for >= 0: an empty string gives -1 (FFmpeg
+// log_callback: `for (i = strlen(msg) - 1; i >= 0 && msg[i] == '\n'; i--)`,
+// mov_open_dref: `for (l = strlen(path) - 1; l >= 0; l--) if (path[l] == '/')`).
+int trim_nl(char *msg, const char *path)
+{
+	int i, l, n = 0;
+	// ok: raptor-off-by-one
+	for (i = strlen(msg) - 1; i >= 0 && msg[i] == '\n'; i--)
+		msg[i] = 0;
+	for (l = strlen(path) - 1; l >= 0; l--)
+		// ok: raptor-off-by-one
+		if (path[l] == '/')
+			n++;
+	return n;
+}
+
+// An unsigned index wraps instead of going negative.
+void trim_nl_unsigned(char *msg)
+{
+	size_t i = strlen(msg) - 1;
+	// ruleid: raptor-off-by-one
+	if (i >= 0 && msg[i] == '\n')
+		// ruleid: raptor-off-by-one
+		msg[i] = 0;
+}
+
 int main()
 {
 	printf("Hello, World!");
