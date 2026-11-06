@@ -1,0 +1,72 @@
+{
+  "name": "freerdp-clear-glyph-count-before-realloc",
+  "cve": "CVE-2026-33985",
+  "aliases": [
+    "GHSA-x6gr-8p7h-5h85"
+  ],
+  "repo": "https://github.com/FreeRDP/FreeRDP.git",
+  "vulnerable": "dc7fdb165095139be779a4000199bc1706b06ad5",
+  "fixed": "c49d1ad43b8c7b32794d0250f2623c2dccd7ef25",
+  "fixed_note": "[codec,clear] Update CLEAR_GLYPH_ENTRY::count after alloc",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-raptor",
+      "-G",
+      "Ninja",
+      "-DWITH_CLIENT=OFF",
+      "-DWITH_SERVER=OFF",
+      "-DWITH_SAMPLE=OFF",
+      "-DWITH_X11=OFF",
+      "-DWITH_WAYLAND=OFF",
+      "-DWITH_FFMPEG=OFF",
+      "-DWITH_SWSCALE=OFF",
+      "-DWITH_CUPS=OFF",
+      "-DWITH_PULSE=OFF",
+      "-DWITH_ALSA=OFF",
+      "-DWITH_FUSE=OFF",
+      "-DWITH_PCSC=OFF",
+      "-DWITH_KRB5=OFF",
+      "-DWITH_CHANNELS=OFF",
+      "-DWITH_MANPAGES=OFF",
+      "-DWITH_JSON_DISABLED=ON",
+      "-DWITH_CLIENT_SDL=OFF",
+      "-DWITH_SHADOW=OFF",
+      "-DWITH_PROXY=OFF",
+      "-DWITH_PLATFORM_SERVER=OFF",
+      "-DWITH_OPUS=OFF",
+      "-DWITH_LAME=OFF",
+      "-DWITH_FAAD2=OFF",
+      "-DWITH_FAAC=OFF",
+      "-DWITH_SOXR=OFF",
+      "-DWITH_WEBVIEW=OFF",
+      "-DWITH_DSP_FFMPEG=OFF",
+      "-DWITH_URIPARSER=OFF",
+      "-DWITH_AAD=OFF"
+    ]
+  ],
+  "checker": "raptor.CapacityUpdatedBeforeRealloc",
+  "args": [
+    "-std=gnu11",
+    "-Iinclude",
+    "-Iwinpr/include",
+    "-Ibuild-raptor/include",
+    "-Ibuild-raptor/winpr/include",
+    "-Ilibfreerdp",
+    "-Ibuild-raptor/libfreerdp",
+    "-Ilibfreerdp/codec"
+  ],
+  "files": {
+    "libfreerdp/codec/clear.c": {
+      "vulnerable": [
+        "^\\t\\tglyphEntry->count = nWidth \\* nHeight;$"
+      ],
+      "fixed": [
+        "^\\t\\t\\tglyphEntry->count = WINPR_ASSERTING_INT_CAST\\(UINT32, count\\);$"
+      ]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "nimble-adv-report-sizeof-pointer",
+  "cve": "CVE-2026-45812",
+  "repo": "https://github.com/apache/mynewt-nimble.git",
+  "vulnerable": "5778cd6d2228e9222f8bb5797c323e4c12da0a06",
+  "fixed": "605c7585408bc3674818eeb7b6f478a8aefe9746",
+  "fixed_note": "nimble/host: Fix parsing HCI advertising report event",
+  "checker": "raptor.IncorrectUseOfSizeof",
+  "args": [
+    "-std=gnu11",
+    "-D_GNU_SOURCE",
+    "-Iext/tinycrypt/include",
+    "-Iporting/examples/linux/include",
+    "-Inimble/host/include",
+    "-Inimble/include",
+    "-Inimble/transport/include",
+    "-Inimble/transport/socket/include",
+    "-Iporting/nimble/include",
+    "-Iporting/npl/linux/include",
+    "-Inimble/host/src"
+  ],
+  "files": {
+    "nimble/host/src/ble_hs_hci_evt.c": {
+      "vulnerable": [
+        "^\\s+data \\+= sizeof\\(rpt\\) \\+ rpt->data_len \\+ 1;$"
+      ],
+      "fixed": [
+        "^\\s+data \\+= sizeof\\(\\*rpt\\) \\+ rpt->data_len \\+ 1;$"
+      ]
+    }
+  }
+}
