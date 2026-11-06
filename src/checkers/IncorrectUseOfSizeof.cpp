@@ -8,7 +8,9 @@
 //  - sizeof(this) in C++;
 //  - sizeof('c') in C, where a character literal is an int (the semgrep rule
 //    would like to match it but semgrep cannot).
-// A sizeof compared with a constant or switched on checks a width, not a memory
+// The pointer variable itself as data (sizeof(v) beside &v in an initializer
+// list or call, or compared for equality with a received size) is not
+// reported either. A sizeof compared with a constant or switched on checks a width, not a memory
 // size (kernel READ_ONCE `sizeof(x) == sizeof(long)`, this_cpu_read
 // `switch (sizeof(var))`), and is not reported.
 #include "BufHelpers.h"
@@ -69,14 +71,52 @@ bool isWidthCheck(const Expr *E, ASTContext &Ctx) {
       continue;
     }
     if (const auto *BO = Parents[0].get<BinaryOperator>()) {
-      // compared with another constant (sizeof(long), 8), not with an index
-      // (`i < sizeof(arr)` is a bound)
+      // compared with another constant (sizeof(long), 8), or for equality
+      // with a size received for the pointer (`p->data_size ==
+      // sizeof(pkey)`); `i < sizeof(arr)` is a bound and still reported
       const Expr *Other = BO->getLHS() == Cur ? BO->getRHS() : BO->getLHS();
-      return BO->isComparisonOp() && !Other->isValueDependent() &&
-             Other->isIntegerConstantExpr(Ctx);
+      return BO->isEqualityOp() ||
+             (BO->isComparisonOp() && !Other->isValueDependent() &&
+              Other->isIntegerConstantExpr(Ctx));
     }
     if (const auto *SW = Parents[0].get<SwitchStmt>())
       return SW->getCond() == Cur;
+    return false;
+  }
+}
+
+// sizeof(v) next to &v in the same initializer list or call: the pointer
+// variable itself is the data, given by address and size (OpenSSL
+// OSSL_PARAM `{ "handle", OSSL_PARAM_OCTET_PTR, &handle, sizeof(handle) }`).
+bool besideItsAddress(const UnaryExprOrTypeTraitExpr *U, const Expr *Arg,
+                      ASTContext &Ctx) {
+  const auto *DRE = dyn_cast<DeclRefExpr>(Arg->IgnoreParens());
+  if (!DRE)
+    return false;
+  const Stmt *Cur = U;
+  while (true) {
+    auto Parents = Ctx.getParents(*Cur);
+    if (Parents.empty())
+      return false;
+    if (const auto *P = Parents[0].get<Expr>();
+        P && (isa<ParenExpr>(P) || isa<ImplicitCastExpr>(P))) {
+      Cur = P;
+      continue;
+    }
+    llvm::SmallVector<const Expr *, 8> Tmp;
+    if (const auto *IL = Parents[0].get<InitListExpr>())
+      Tmp.append(IL->inits().begin(), IL->inits().end());
+    else if (const auto *CE = Parents[0].get<CallExpr>())
+      Tmp.append(CE->arg_begin(), CE->arg_end());
+    else
+      return false;
+    for (const Expr *E : Tmp) {
+      const auto *UO = dyn_cast<UnaryOperator>(E->IgnoreParenCasts());
+      if (UO && UO->getOpcode() == UO_AddrOf)
+        if (const auto *R = dyn_cast<DeclRefExpr>(UO->getSubExpr()->IgnoreParenCasts());
+            R && R->getDecl() == DRE->getDecl())
+          return true;
+    }
     return false;
   }
 }
@@ -107,7 +147,8 @@ public:
             Bad = true;
           else if (isa<CharacterLiteral>(Arg) && !LO.CPlusPlus)
             Bad = true;
-          if (Bad && !isWidthCheck(U, Mgr.getASTContext()))
+          if (Bad && !isWidthCheck(U, Mgr.getASTContext()) &&
+              !besideItsAddress(U, Arg, Mgr.getASTContext()))
             raptor::reportAt(
                 BR, this, "Incorrect use of sizeof()",
                 "The code calls sizeof() on a pointer type, which always "

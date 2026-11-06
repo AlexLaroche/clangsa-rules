@@ -243,3 +243,24 @@ int pointer_width_checks(char *p)
 	memset(p, 0, sizeof(p));
 	return n;
 }
+
+// The pointer variable itself is the data: its address goes along with its
+// size (OpenSSL OSSL_PARAM `{ "handle", OSSL_PARAM_OCTET_PTR, &handle,
+// sizeof(handle), 0 }`), or a received size is matched against it
+// (`p->data_size == sizeof(pkey)`).
+struct param { const char *key; void *data; size_t data_size; };
+void use_params(const struct param *p);
+int pointer_as_data(char *handle, struct param *in)
+{
+	struct param params[] = {
+		// ok: raptor-incorrect-use-of-sizeof
+		{ "handle", &handle, sizeof(handle) },
+	};
+	use_params(params);
+	// ok: raptor-incorrect-use-of-sizeof
+	if (in->data_size == sizeof(handle))
+		return 1;
+	// ruleid: raptor-incorrect-use-of-sizeof
+	memcpy(in->data, handle, sizeof(handle));
+	return 0;
+}

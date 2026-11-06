@@ -99,6 +99,39 @@ int append_data(struct databuf *buf, char *src, size_t len)
 	return 0;
 }
 
+// A helper that tests its argument for NULL checks the allocation passed to
+// it (OpenVPN `check_malloc_return(e)`, and its ALLOC_OBJ macro
+// `check_malloc_return((dptr) = malloc(sizeof(type)))`).
+void out_of_memory(void);
+static inline void check_alloc(void *p)
+{
+	if (!p)
+		out_of_memory();
+}
+void log_ptr(void *p);
+#define ALLOC_ONE(d, type) check_alloc((d) = (type *)malloc(sizeof(type)))
+char *alloc_checked_by_helper(size_t n)
+{
+	// ok: raptor-unchecked-ret-malloc
+	char *e = (char *)malloc(n);
+	check_alloc(e);
+	return e;
+}
+int *alloc_in_helper_argument(void)
+{
+	int *d;
+	// ok: raptor-unchecked-ret-malloc
+	ALLOC_ONE(d, int);
+	return d;
+}
+char *alloc_passed_to_other(size_t n)
+{
+	// ruleid: raptor-unchecked-ret-malloc
+	char *e = (char *)malloc(n);
+	log_ptr(e);
+	return e;
+}
+
 int main()
 {
 	printf("Hello, World!");
