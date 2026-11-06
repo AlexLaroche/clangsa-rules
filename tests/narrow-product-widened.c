@@ -115,3 +115,42 @@ int64_t local_copy(const Img *img)
 	int64_t c = (int64_t)(spp * 3);
 	return a + b + c;
 }
+
+// A product of run-time values used as a pointer offset: the offset is a
+// 64-bit address difference, but the product wrapped in 32 bits (OpenEXR
+// CVE-2026-34588, internal_piz.c: `wavbuf += nx * ny * wcount;`).
+void piz_channels(unsigned short *wavbuf, int nchan, const int *nx,
+                  const int *ny, int wcount) {
+  for (int c = 0; c < nchan; c++)
+    // ruleid: raptor-narrow-product-widened
+    wavbuf += nx[c] * ny[c] * wcount;
+}
+// Row addressing (`base + y * stride`, two factors) is everywhere in image
+// code and stays inside a buffer sized for the whole image: only offsets
+// made of three run-time factors or more (a plane: width * height * depth)
+// are reported.
+unsigned short *wavelet_end(unsigned short *in, int oy, int ny, int p2) {
+  // ok: raptor-narrow-product-widened
+  unsigned short *ey = in + oy * (ny - p2);
+  return ey;
+}
+unsigned char *plane_of(unsigned char *base, int plane, int w, int h) {
+  // ruleid: raptor-narrow-product-widened
+  return base + plane * w * h;
+}
+// The fix: widened before the multiplication.
+void piz_channels_fixed(unsigned short *wavbuf, int nchan, const int *nx,
+                        const int *ny, int wcount) {
+  for (int c = 0; c < nchan; c++)
+    // ok: raptor-narrow-product-widened
+    wavbuf += (unsigned long long)nx[c] * ny[c] * wcount;
+}
+// A constant factor, or operands too narrow to overflow, are not reported.
+unsigned char *row_of(unsigned char *base, int y, unsigned char w,
+                      unsigned char h) {
+  // ok: raptor-narrow-product-widened
+  unsigned char *a = base + y * 4;
+  // ok: raptor-narrow-product-widened
+  return a + w * h;
+}
+

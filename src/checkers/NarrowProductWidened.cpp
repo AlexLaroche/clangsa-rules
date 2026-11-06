@@ -10,14 +10,17 @@
 // Forms: an explicit cast of the product itself (parentheses aside) to a
 // 64-bit type, constant factors included; an implicit conversion of a
 // product of two run-time values to a 64-bit variable or field in an
-// initialisation or an assignment. The operands' value widths must add up to
+// initialisation or an assignment; a product of three run-time values or
+// more used as a pointer offset (`p += nx * ny * wcount`; two-factor row
+// addressing such as `base + y * stride` is not reported). The operands' value widths must add up to
 // more than the product's (raptor::valueBits; a local never modified after
 // its initialisation is as wide as its initialiser). Products widened before the
 // multiplication (`(uint64_t) w * 3`) are 64-bit and do not match; neither
 // do products guarded by a division check on a factor (`a > UINT32_MAX / b`)
 // or an overflow helper (`__builtin_mul_overflow`).
 //
-// CVE-2026-34380 (OpenEXR undo_pxr24), CVE-2026-41142 (OpenEXR
+// CVE-2026-34380 (OpenEXR undo_pxr24), CVE-2026-34588 (OpenEXR
+// internal_exr_undo_piz, `wavbuf += nx * ny * wcount`), CVE-2026-41142 (OpenEXR
 // ImageChannel::resize), CVE-2026-21486 (iccDEV
 // CIccTagSparseMatrixArray::Read).
 #include "Common.h"
@@ -97,6 +100,16 @@ const BinaryOperator *narrowMul(const Expr *E, const ASTContext &Ctx,
   return BO;
 }
 
+// The non-constant factors of a `*` chain (`nx * ny * wcount`: 3).
+unsigned runtimeFactors(const Expr *E, const ASTContext &Ctx) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *BO = dyn_cast<BinaryOperator>(E);
+      BO && BO->getOpcode() == BO_Mul)
+    return runtimeFactors(BO->getLHS(), Ctx) +
+           runtimeFactors(BO->getRHS(), Ctx);
+  return isConst(E, Ctx) ? 0 : 1;
+}
+
 bool wide(QualType T, const ASTContext &Ctx) {
   return !T.isNull() && T->isIntegerType() && !T->isDependentType() &&
          Ctx.getIntWidth(T) >= 64;
@@ -128,6 +141,22 @@ public:
   bool VisitBinaryOperator(BinaryOperator *BO) {
     if (BO->getOpcode() == BO_Assign)
       implicit(BO->getRHS(), BO->getLHS()->getType());
+    // A pointer offset (`p + a * b * c`, `p += a * b * c`): the offset is a
+    // 64-bit address difference, the product is not. Three run-time factors
+    // at least (a plane); `base + y * stride` row addressing is left alone.
+    BinaryOperatorKind Op = BO->getOpcode();
+    if (Op == BO_Add || Op == BO_Sub || Op == BO_AddAssign ||
+        Op == BO_SubAssign) {
+      const Expr *P = BO->getLHS(), *N = BO->getRHS();
+      if (!P->getType()->isPointerType() && Op == BO_Add)
+        std::swap(P, N);
+      if (P->getType()->isPointerType() &&
+          Ctx.getTypeSize(P->getType()) >= 64)
+        if (const BinaryOperator *M =
+                narrowMul(N->IgnoreParenImpCasts(), Ctx, false, Modified);
+            M && runtimeFactors(M, Ctx) >= 3)
+          Out.push_back(M);
+    }
     return true;
   }
   bool VisitVarDecl(VarDecl *VD) {

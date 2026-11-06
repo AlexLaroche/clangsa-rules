@@ -1,0 +1,36 @@
+{
+  "name": "openexr-piz-wavelet-offset",
+  "cve": "CVE-2026-34588",
+  "repo": "https://github.com/AcademySoftwareFoundation/openexr.git",
+  "vulnerable": "f5beec2bd8636102e74460a0b624d3e26efc546f",
+  "fixed": "e464a33cc5bcd9f7dad2364bf76c08a52a5b0fbf",
+  "fixed_note": "internal_exr_apply_piz/undo_piz: advance wavbuf by a 64-bit nx * ny * wcount",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "mkdir -p build-raptor/stub && printf '#define OPENEXR_VERSION_MAJOR 3\\n#define OPENEXR_VERSION_MINOR 4\\n#define OPENEXR_VERSION_PATCH 0\\n#define OPENEXR_EXPORT\\n#define OPENEXR_HIDDEN\\n' > build-raptor/stub/OpenEXRConfig.h && : > build-raptor/stub/IlmThreadConfig.h && : > build-raptor/stub/ImathConfig.h"
+    ]
+  ],
+  "checker": "raptor.NarrowProductWidened",
+  "args": [
+    "-Isrc/lib/OpenEXRCore",
+    "-Ibuild-raptor/stub"
+  ],
+  "files": {
+    "src/lib/OpenEXRCore/internal_piz.c": {
+      "vulnerable": [
+        {
+          "re": "wavbuf \\+= nx \\* ny \\* wcount;",
+          "count": 2
+        }
+      ],
+      "fixed": [
+        {
+          "re": "wavbuf \\+= \\(uint64_t\\) nx \\* ny \\* wcount;",
+          "count": 2
+        }
+      ]
+    }
+  }
+}
