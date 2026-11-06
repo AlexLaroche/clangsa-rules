@@ -1,0 +1,49 @@
+{
+  "name": "radare2-str-append-int-length",
+  "cve": "CVE-2026-14761",
+  "repo": "https://github.com/radareorg/radare2.git",
+  "vulnerable": "8b25c773785d85cb0103410a0905089d286921c2",
+  "fixed": "a20a56917ae85d732e683f8d9078bdcfee92446c",
+  "fixed_note": "Fix #26045 - r_str_append signed length overflow ##crash",
+  "setup": [
+    [
+      "./configure"
+    ],
+    [
+      "make",
+      "libr/include/r_version.h"
+    ],
+    [
+      "git",
+      "clone",
+      "-q",
+      "--depth",
+      "1",
+      "-b",
+      "2.4.4",
+      "https://github.com/radareorg/sdb.git",
+      "subprojects/sdb"
+    ]
+  ],
+  "checker": "raptor.IntegerWraparound",
+  "args": [
+    "-std=gnu11",
+    "-Ilibr/include",
+    "-Ilibr/util",
+    "-Isubprojects/sdb/include"
+  ],
+  "files": {
+    "libr/util/str.c": {
+      "vulnerable": [
+        "^\\tptr = realloc \\(ptr, slen \\+ plen \\+ 1\\);$",
+        "^\\tchar \\*newptr = realloc \\(ptr, slen \\+ plen \\+ 1\\);$"
+      ],
+      "fixed": [
+        {
+          "re": "^\\tchar \\*newptr = realloc \\(ptr, slen \\+ plen \\+ 1\\);$",
+          "count": 2
+        }
+      ]
+    }
+  }
+}

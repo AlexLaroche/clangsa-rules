@@ -1,7 +1,8 @@
 // raptor.IntegerWraparound:
 //  1. an allocation size computed with * or + (directly in the argument, or
 //     assigned to the size variable earlier in the function), which can wrap
-//     around and allocate a buffer smaller than intended;
+//     around and allocate a buffer smaller than intended (size_t sums of
+//     strlen() lengths and constants excepted);
 //  2. bounds checks like `x > MAX || (x + n) > MAX` (and the && / * forms),
 //     where the second comparison is defeated by the very wraparound it is
 //     meant to catch.
@@ -27,6 +28,60 @@ bool plusNotSelf(const BinaryOperator *BO, const ASTContext &Ctx) {
   return BO->getOpcode() == BO_Add && (notOf(BO->getRHS(), BO->getLHS()) ||
                                        notOf(BO->getLHS(), BO->getRHS()));
 }
+// Is V written anywhere in S after its initialisation (assigned, ++/--, or
+// its address taken)?
+bool written(const Stmt *S, const VarDecl *V) {
+  if (!S)
+    return false;
+  auto isV = [&](const Expr *E) {
+    const auto *D = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+    return D && D->getDecl() == V;
+  };
+  if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->isAssignmentOp() && isV(BO->getLHS()))
+    return true;
+  if (const auto *UO = dyn_cast<UnaryOperator>(S);
+      UO && (UO->isIncrementDecrementOp() || UO->getOpcode() == UO_AddrOf) && isV(UO->getSubExpr()))
+    return true;
+  for (const Stmt *C : S->children())
+    if (written(C, V))
+      return true;
+  return false;
+}
+// The length of a string in memory: strlen(...) or wcslen(...) itself, or an
+// unsigned local at least as wide as size_t initialised from one and never
+// written again.
+bool isStrLength(const Expr *E, const ASTContext &Ctx) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *CE = dyn_cast<CallExpr>(E))
+    return raptor::isOneOf(raptor::calleeName(CE), {"strlen", "wcslen"});
+  const auto *DRE = dyn_cast<DeclRefExpr>(E);
+  const auto *V = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  if (!V || !V->isLocalVarDecl() || !V->getInit() || !V->getType()->isUnsignedIntegerType() ||
+      Ctx.getIntWidth(V->getType()) < Ctx.getIntWidth(Ctx.getSizeType()))
+    return false;
+  const auto *CE = dyn_cast<CallExpr>(V->getInit()->IgnoreParenImpCasts());
+  if (!CE || !raptor::isOneOf(raptor::calleeName(CE), {"strlen", "wcslen"}))
+    return false;
+  const auto *FD = dyn_cast_or_null<FunctionDecl>(V->getParentFunctionOrMethod());
+  return FD && !written(FD->getBody(), V);
+}
+// A size_t-wide sum of string lengths and integer constants, as in
+// `strlen(a) + strlen(b) + 1` or `plen + slen + 1` with size_t lengths from
+// strlen(): every string lies in memory, so their lengths cannot add up past
+// SIZE_MAX (radare2 r_str_append after the fix of CVE-2026-14761). The same
+// sum in int, the vulnerable form, is still reported.
+bool strLengthSum(const Expr *E, const ASTContext &Ctx) {
+  E = E->IgnoreParenImpCasts();
+  if (E->getType()->isIntegerType() && E->isIntegerConstantExpr(Ctx))
+    return true;
+  const auto *BO = dyn_cast<BinaryOperator>(E);
+  if (!BO)
+    return isStrLength(E, Ctx);
+  QualType T = BO->getType();
+  return BO->getOpcode() == BO_Add && T->isUnsignedIntegerType() &&
+         Ctx.getIntWidth(T) >= Ctx.getIntWidth(Ctx.getSizeType()) &&
+         strLengthSum(BO->getLHS(), Ctx) && strLengthSum(BO->getRHS(), Ctx);
+}
 // A `*` or `+` (or `*=`, `+=`) that can wrap: the operands' value widths
 // (raptor::valueBits) do not fit the result type, so `CARD8 + 1` or
 // `min(n, 6) + 1` do not count.
@@ -37,7 +92,7 @@ bool isMulOrAdd(const Expr *E, const ASTContext &Ctx) {
     return false;
   if (BO->getOpcode() == BO_MulAssign || BO->getOpcode() == BO_AddAssign)
     return true;
-  if (!isOneOfOp(BO->getOpcode()) || plusNotSelf(BO, Ctx))
+  if (!isOneOfOp(BO->getOpcode()) || plusNotSelf(BO, Ctx) || strLengthSum(BO, Ctx))
     return false;
   QualType T = BO->getType();
   // Size arithmetic (size_t) keeps the plain syntactic rule: it wraps on

@@ -419,3 +419,43 @@ void *wide_operands(unsigned count, unsigned w, unsigned h)
 	free(a);
 	return b;
 }
+// radare2 r_str_append (CVE-2026-14761): the lengths are stored in ints, so a
+// string longer than INT_MAX makes the sum wrap.
+char *str_append_int(char *ptr, const char *string)
+{
+	int plen = strlen(ptr);
+	int slen = strlen(string);
+	// ruleid: raptor-integer-wraparound
+	char *newptr = realloc(ptr, slen + plen + 1);
+	if (!newptr)
+		return NULL;
+	memcpy(newptr + plen, string, slen + 1);
+	return newptr;
+}
+// The fix: size_t lengths of objects in memory, plus a constant, cannot wrap.
+char *str_append_size(char *ptr, const char *string)
+{
+	size_t plen = strlen(ptr);
+	size_t slen = strlen(string);
+	// ok: raptor-integer-wraparound
+	char *newptr = realloc(ptr, slen + plen + 1);
+	if (!newptr)
+		return NULL;
+	memcpy(newptr + plen, string, slen + 1);
+	// ok: raptor-integer-wraparound
+	char *dup = malloc(strlen(ptr) + strlen(string) + 2);
+	free(dup);
+	return newptr;
+}
+// A length scaled or changed after strlen() can still wrap.
+char *str_scaled(const char *string, size_t extra)
+{
+	size_t n = strlen(string);
+	n *= 4;
+	// ruleid: raptor-integer-wraparound
+	char *a = malloc(n + 1);
+	// ruleid: raptor-integer-wraparound
+	char *b = malloc(strlen(string) + extra);
+	free(a);
+	return b;
+}

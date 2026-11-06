@@ -1,0 +1,27 @@
+{
+  "name": "openjpeg-pi-encode-include-size",
+  "cve": "CVE-2026-6192",
+  "repo": "https://github.com/uclouvain/openjpeg.git",
+  "vulnerable": "1ad9bec2c12ee445ce23e660f5e4fe870b9d5e09",
+  "fixed": "839936aa33eb8899bbbd80fda02796bb65068951",
+  "fixed_note": "opj_pi_initialise_encode() (write code path): avoid potential integer overflow leading to insufficient memory allocation",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-raptor"
+    ]
+  ],
+  "checker": "raptor.UncheckedAllocProduct",
+  "args": [
+    "-Isrc/lib/openjp2",
+    "-Ibuild-raptor/src/lib/openjp2"
+  ],
+  "files": {
+    "src/lib/openjp2/pi.c": [
+      "^\\s+l_current_pi->include = \\(OPJ_INT16\\*\\) opj_calloc\\(l_current_pi->include_size,$"
+    ]
+  }
+}
