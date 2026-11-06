@@ -3,6 +3,8 @@
 // free() and friends, library destructors (`OCSP_REQUEST_free(req)`,
 // mongo-c-driver CVE-2026-84964) and allocator hooks (libssh2
 // `SSH2_FREE(session, data)` -> `session->free(data, ...)`, CVE-2026-66032).
+// A plain free() after destructors known only by name (`x_free(p); free(p);`)
+// is the release of the block whose contents they cleared: not reported.
 // Flow-sensitive walk of the CFG (may-analysis, so a free on any incoming path
 // counts). Path-sensitive tracking of the freed symbol is not used because
 // unix.Malloc (enabled by default) sinks the path at the first double free.
@@ -35,7 +37,9 @@ public:
               P &&
               (Freed.count(raptor_mem::keyOf(P)) ||
                Freed.count("?" + raptor_mem::keyOf(P))) &&
-              !raptor_mem::onlyRetry(Freed, raptor_mem::keyOf(P), CE))
+              !raptor_mem::onlyRetry(Freed, raptor_mem::keyOf(P), CE) &&
+              !(raptor_mem::isPlainFreeName(raptor::calleeName(CE)) &&
+                raptor_mem::onlyNamedDestructors(Freed, raptor_mem::keyOf(P))))
             raptor::reportAt(
                 BR, this, "Double free",
                 "The software releases the same memory address twice (free(), "

@@ -394,6 +394,70 @@ void free_tuple_twice(TUPLE *t)
 	tuple_free(&t);
 }
 
+// A library destructor that clears an object's contents, followed by the
+// release of the object itself (Mbed TLS `mbedtls_ssl_transform_free(t)`,
+// defined in another file, then `mbedtls_free(t)`): two steps of one
+// release, not a double free.
+typedef struct transform TRANSFORM;
+void transform_free(TRANSFORM *t);
+typedef struct {
+	TRANSFORM *transform;
+} SslCtx;
+int handshake_reinit(SslCtx *ssl)
+{
+	if (ssl->transform)
+		transform_free(ssl->transform);
+	if (ssl->transform == NULL)
+		ssl->transform = calloc(1, 64);
+	if (ssl->transform == NULL) {
+		// ok: raptor-double-free
+		free(ssl->transform);
+		return -1;
+	}
+	return 0;
+}
+void clear_then_free(TRANSFORM *t)
+{
+	transform_free(t);
+	// ok: raptor-double-free
+	free(t);
+}
+void free_twice(TRANSFORM *t)
+{
+	free(t);
+	// ruleid: raptor-double-free
+	transform_free(t);
+}
+
+// A destructor known by name, then the matching init on the same object
+// (Mbed TLS `mbedtls_pk_free(pk); mbedtls_pk_init(pk);` between parse
+// attempts): the object is ready to be used, and released, again.
+typedef struct pk_ctx PK;
+void pk_free(PK *pk);
+void pk_init(PK *pk);
+int pk_try(PK *pk, int a);
+int pk_parse_any(PK *pk)
+{
+	if (pk_try(pk, 1) == 0)
+		return 0;
+	pk_free(pk);
+	pk_init(pk);
+	if (pk_try(pk, 2) == 0)
+		return 0;
+	// ok: raptor-double-free
+	pk_free(pk);
+	return -1;
+}
+// Another type's init does not.
+void other_init(PK *pk);
+void pk_free_twice(PK *pk)
+{
+	pk_free(pk);
+	other_init(pk);
+	// ruleid: raptor-double-free
+	pk_free(pk);
+}
+
 int main()
 {
 	printf("Hello, World!");

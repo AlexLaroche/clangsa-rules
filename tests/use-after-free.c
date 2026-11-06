@@ -533,6 +533,29 @@ void destroy_cfgobj(struct cfg_obj *obj)
 	mem_put(obj, sizeof(*obj));
 }
 
+// A destructor defined here whose only release of its argument is a call
+// to another file's destructor, known by name alone (Mbed TLS
+// `mbedtls_ssl_handshake_free(ssl)` calls `mbedtls_ssl_buffering_free(ssl)`):
+// not evidence that it releases the argument.
+typedef struct {
+	int *handshake;
+	int state;
+} Ssl;
+void ssl_buffering_free(Ssl *ssl);
+void ssl_handshake_free(Ssl *ssl)
+{
+	ssl_buffering_free(ssl);
+	free(ssl->handshake);
+	ssl->handshake = 0;
+}
+int ssl_handshake_init(Ssl *ssl)
+{
+	if (ssl->handshake)
+		ssl_handshake_free(ssl);
+	// ok: raptor-use-after-free
+	return ssl->state;
+}
+
 int main()
 {
 	printf("Hello, World!");

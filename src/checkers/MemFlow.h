@@ -88,6 +88,12 @@ inline bool isCallTo(const clang::Stmt *S, llvm::StringRef Name) {
 // body is in the translation unit and releases the argument: names alone
 // also match destructors of what an object holds (libarchive
 // `__archive_write_filters_free(a)`).
+// free() and its direct equivalents (a destructor of a whole block).
+inline bool isPlainFreeName(llvm::StringRef N) {
+  return raptor::isOneOf(N, {"free", "cfree", "g_free", "xfree", "av_free",
+                             "sqlite3_free", "CRYPTO_free", "OPENSSL_free"});
+}
+
 inline const clang::Expr *releasedArg(const clang::CallExpr *CE, int Depth = 2,
                                       bool Named = true) {
   using namespace clang;
@@ -110,8 +116,7 @@ inline const clang::Expr *releasedArg(const clang::CallExpr *CE, int Depth = 2,
   };
   llvm::StringRef N = raptor::calleeName(CE);
   if (!N.empty()) {
-    if (raptor::isOneOf(N, {"free", "cfree", "g_free", "xfree", "av_free",
-                            "sqlite3_free", "CRYPTO_free", "OPENSSL_free"}))
+    if (isPlainFreeName(N))
       return CE->getNumArgs() >= 1 && !isAddr(CE->getArg(0)) ? CE->getArg(0)
                                                              : nullptr;
     if (N.ends_with("freep") || N.contains_insensitive("clear"))
@@ -150,7 +155,10 @@ inline const clang::Expr *releasedArg(const clang::CallExpr *CE, int Depth = 2,
         if (!S)
           return false;
         if (const auto *C = dyn_cast<CallExpr>(S))
-          if (const Expr *R = releasedArg(C, Depth - 1))
+          // Only a release known for sure counts here: a nested destructor
+          // known by its name alone (Mbed TLS `mbedtls_ssl_handshake_free(ssl)`
+          // calling `mbedtls_ssl_buffering_free(ssl)`) is not evidence.
+          if (const Expr *R = releasedArg(C, Depth - 1, false))
             if (const auto *D = dyn_cast<DeclRefExpr>(R->IgnoreParenImpCasts());
                 D && D->getDecl() == PV)
               return true;
@@ -426,6 +434,25 @@ inline void trackFreesWith(const clang::Stmt *S, KeySet &Freed, bool Named) {
       Freed.clear();
       return;
     }
+    // `x_free(p); x_init(p);` (Mbed TLS `mbedtls_pk_free(pk);
+    // mbedtls_pk_init(pk);`): the init matching the destructor makes the
+    // object usable again.
+    llvm::StringRef CN = raptor::calleeName(CE);
+    if (CN.size() > 5 && CN.ends_with("init") && CE->getNumArgs() >= 1) {
+      std::string AK = keyOf(raptor::strip(CE->getArg(0)));
+      std::string Pre = "@" + AK + "#";
+      std::string Free = CN.drop_back(4).str() + "free";
+      bool Match = false;
+      for (auto It = Freed.lower_bound(Pre);
+           !AK.empty() && It != Freed.end() &&
+           llvm::StringRef(*It).starts_with(Pre);
+           ++It)
+        Match |= raptor::calleeName(reinterpret_cast<const CallExpr *>(
+                     static_cast<uintptr_t>(std::stoull(
+                         It->substr(Pre.size()))))) == Free;
+      if (Match)
+        eraseFrom(Freed, AK);
+    }
     if (!releasedArg(CE, 2, Named))
       for (unsigned I = 0; I < CE->getNumArgs(); ++I) {
         const Expr *A = CE->getArg(I);
@@ -483,6 +510,24 @@ inline void trackFrees(const clang::Stmt *S, KeySet &Freed) {
 }
 inline void trackStrictFrees(const clang::Stmt *S, KeySet &Freed) {
   trackFreesWith(S, Freed, false);
+}
+
+// Is every recorded release of K a library destructor known by its name
+// alone? A plain free() of K after it is then the second step of "clear the
+// contents, release the block" (Mbed TLS `mbedtls_ssl_transform_free(t);`
+// then `mbedtls_free(t);`), not a second release.
+inline bool onlyNamedDestructors(const KeySet &Freed, const std::string &K) {
+  std::string Pre = "@" + K + "#";
+  bool Any = false;
+  for (auto It = Freed.lower_bound(Pre);
+       It != Freed.end() && llvm::StringRef(*It).starts_with(Pre); ++It) {
+    const auto *C = reinterpret_cast<const clang::CallExpr *>(
+        static_cast<uintptr_t>(std::stoull(It->substr(Pre.size()))));
+    if (isPlainFreeName(raptor::calleeName(C)) || releasedArg(C, 2, false))
+      return false;
+    Any = true;
+  }
+  return Any;
 }
 
 // Is CE, a release of K, only repeating itself: a release that returns a
