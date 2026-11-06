@@ -25,7 +25,8 @@
 // UINT32_MAX); ... (UINT32)timeout`).
 // Not reported: a value also compared, outside assertions, in the condition
 // of an if, a loop or a ?: against something other than a constant <= 1
-// (`if (n > max)`, `i < n`, a clamp `n > MAX ? MAX : n`); a comparison that
+// (`if (n > max)`, `i < n`, a clamp `n > MAX ? MAX : n`, an exact-size check
+// `if (n != expected)`); a comparison that
 // only classifies the value (`bool grow = size > prev;`, `size > prev ?
 // size - prev : prev - size`) does not count, nor does a sign test
 // (`if (len > 0)`).
@@ -357,7 +358,9 @@ public:
         return;
       walk(Cond, [&](const Stmt *S) {
         const auto *BO = dyn_cast<BinaryOperator>(S);
-        if (!BO || !BO->isRelationalOp())
+        // An exact-size check (`if (n != expected) return err;`) bounds the
+        // value as well as an ordering does.
+        if (!BO || !(BO->isRelationalOp() || BO->isEqualityOp()))
           return;
         for (auto &[Name, Vs] : Vars)
           for (const VarDecl *V : Vs) {

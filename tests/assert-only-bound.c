@@ -216,3 +216,27 @@ void copy_release(unsigned char *dst, const unsigned char *src, size_t n) {
   assert(n <= 64);
   memcpy(dst, src, n);
 }
+
+// An exact-size check outside the assertion bounds the value too (zstd
+// ZSTD_decompressContinue: `RETURN_ERROR_IF(srcSize !=
+// ZSTD_nextSrcSizeToDecompress...(dctx, srcSize), ...)` before
+// `assert(srcSize >= ZSTD_FRAMEIDSIZE); ZSTD_memcpy(..., src, srcSize);`).
+size_t expected_size(void);
+int read_exact(unsigned char *hdr, const unsigned char *src, size_t srcSize)
+{
+	if (srcSize != expected_size())
+		return -1;
+	// ok: raptor-assert-only-bound
+	assert(srcSize <= 16);
+	memcpy(hdr, src, srcSize);
+	return 0;
+}
+int read_nonzero(unsigned char *hdr, const unsigned char *src, size_t srcSize)
+{
+	if (srcSize == 0)
+		return -1;
+	// ruleid: raptor-assert-only-bound
+	assert(srcSize <= 16);
+	memcpy(hdr, src, srcSize);
+	return 0;
+}
