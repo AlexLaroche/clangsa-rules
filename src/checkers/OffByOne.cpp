@@ -1,6 +1,8 @@
 // raptor.OffByOne: off-by-one array writes, strlen()/sizeof()
 // comparisons, strncat() sizes not ending in "- 1", indexing with
-// strlen() - 1 and allocations with no room for the NUL terminator.
+// strlen() - 1 (unless reached only after a test that the length is not 0:
+// `if (len > 0 && s[len - 1] == '\n')`) and allocations with no room for
+// the NUL terminator.
 #include "BufHelpers.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
@@ -19,6 +21,63 @@ bool isStrlen(const Expr *E, const Expr **Str = nullptr) {
   if (Str)
     *Str = CE->getArg(0);
   return true;
+}
+
+// Does Cond test that a length (IsLen) is not zero: `len`, `len > 0`,
+// `len != 0`, `len >= 1`, possibly among other && operands?
+bool testsNonEmpty(const Expr *Cond, const ASTContext &Ctx,
+                   const std::function<bool(const Expr *)> &IsLen) {
+  if (!Cond)
+    return false;
+  const Expr *C = Cond->IgnoreParenImpCasts();
+  if (IsLen(C))
+    return true;
+  const auto *BO = dyn_cast<BinaryOperator>(C);
+  if (!BO)
+    return false;
+  if (BO->getOpcode() == BO_LAnd)
+    return testsNonEmpty(BO->getLHS(), Ctx, IsLen) ||
+           testsNonEmpty(BO->getRHS(), Ctx, IsLen);
+  auto val = [&](const Expr *E, int64_t &V) {
+    Expr::EvalResult R;
+    if (E->isValueDependent() || !E->EvaluateAsInt(R, Ctx))
+      return false;
+    V = R.Val.getInt().getExtValue();
+    return true;
+  };
+  int64_t V;
+  BinaryOperatorKind Op = BO->getOpcode();
+  const Expr *L = BO->getLHS(), *R = BO->getRHS();
+  if (!IsLen(L->IgnoreParenImpCasts())) {
+    if (!IsLen(R->IgnoreParenImpCasts()))
+      return false;
+    std::swap(L, R);
+    Op = BinaryOperator::reverseComparisonOp(Op);
+  }
+  if (!val(R, V))
+    return false;
+  return (Op == BO_GT && V >= 0) || (Op == BO_NE && V == 0) ||
+         (Op == BO_GE && V >= 1);
+}
+
+// Is S reached only after a test that the length is not zero: the right of
+// an &&, the then-branch of an if, the true branch of a ?:?
+bool underNonEmptyTest(const Stmt *S, const ParentMap &PM, const ASTContext &Ctx,
+                       const std::function<bool(const Expr *)> &IsLen) {
+  for (const Stmt *Child = S, *P = PM.getParent(S); P;
+       Child = P, P = PM.getParent(P)) {
+    if (const auto *BO = dyn_cast<BinaryOperator>(P);
+        BO && BO->getOpcode() == BO_LAnd && Child == BO->getRHS() &&
+        testsNonEmpty(BO->getLHS(), Ctx, IsLen))
+      return true;
+    if (const auto *If = dyn_cast<IfStmt>(P);
+        If && Child == If->getThen() && testsNonEmpty(If->getCond(), Ctx, IsLen))
+      return true;
+    if (const auto *CO = dyn_cast<ConditionalOperator>(P);
+        CO && Child == CO->getTrueExpr() && testsNonEmpty(CO->getCond(), Ctx, IsLen))
+      return true;
+  }
+  return false;
 }
 
 bool isSizeof(const Expr *E, const Expr **Arg = nullptr) {
@@ -148,7 +207,11 @@ public:
     forEach<ArraySubscriptExpr>(Body, [&](const ArraySubscriptExpr *AS) {
       const Expr *X, *Str;
       if (isMinusOne(AS->getIdx(), Ctx, &X) && isStrlen(X, &Str) &&
-          sameExpr(Str, AS->getBase()))
+          sameExpr(Str, AS->getBase()) &&
+          !underNonEmptyTest(AS, PM, Ctx, [&](const Expr *E) {
+            const Expr *S2;
+            return isStrlen(E, &S2) && sameExpr(S2, Str);
+          }))
         Report(AS);
     });
 
@@ -180,8 +243,10 @@ public:
         if (!isAfter(AS, Def.At, SM) || !sameExpr(AS->getBase(), Def.Str))
           return;
         const Expr *X;
-        if (Def.MinusOne ? Def.isLen(AS->getIdx())
-                         : isMinusOne(AS->getIdx(), Ctx, &X) && Def.isLen(X))
+        if ((Def.MinusOne ? Def.isLen(AS->getIdx())
+                          : isMinusOne(AS->getIdx(), Ctx, &X) && Def.isLen(X)) &&
+            !(!Def.MinusOne &&
+              underNonEmptyTest(AS, PM, Ctx, [&](const Expr *E) { return Def.isLen(E); })))
           Report(AS);
       });
       if (!Def.MinusOne)

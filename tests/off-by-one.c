@@ -395,6 +395,30 @@ void f9(const char *str) /* renamed: duplicate definition */
 	}
 }
 
+// Indexing with len - 1 under a test that the string is not empty (Mbed TLS
+// mbedtls_mpi_read_file: `if (slen > 0 && s[slen - 1] == '\n')`).
+void chomp(char *s)
+{
+	size_t slen = strlen(s);
+	// ok: raptor-off-by-one
+	if (slen > 0 && s[slen - 1] == '\n')
+		slen--;
+	if (slen != 0)
+		// ok: raptor-off-by-one
+		s[slen - 1] = 0;
+	// ok: raptor-off-by-one
+	if (strlen(s) && s[strlen(s) - 1] == '\r')
+		s[0] = 0;
+}
+// A test of another value does not protect the index.
+void chomp_bad(char *s, int n)
+{
+	size_t slen = strlen(s);
+	// ruleid: raptor-off-by-one
+	if (n > 0 && s[slen - 1] == '\n')
+		s[0] = 0;
+}
+
 int main()
 {
 	printf("Hello, World!");
