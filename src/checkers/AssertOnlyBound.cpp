@@ -8,7 +8,10 @@
 //
 // Assertion: an expansion of a macro named like assert (`assert`, `ASSERT`,
 // `g_assert`, `XML_ASSERT`...), not a test-framework assertion that runs in
-// every build (`assert_true`, `ck_assert_int_eq`) nor `static_assert`, whose
+// every build (`assert_true`, `ck_assert_int_eq`) nor `static_assert`, nor
+// one that aborts through the project's own handler in every build (OpenVPN
+// `ASSERT` calling assert_failed(), defined outside any DEBUG/NDEBUG `#if`),
+// whose
 // arguments, as written in the source, hold a <, <=, > or >= comparison. The
 // arguments are lexed, so assertions compiled out with NDEBUG are seen too.
 // Value: an integer local or parameter named in those arguments (not a field
@@ -37,6 +40,7 @@
 #include "Registry.h"
 #include "clang/AST/ParentMap.h"
 #include "clang/Lex/Lexer.h"
+#include "clang/Lex/Preprocessor.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "llvm/Support/Regex.h"
 #include <map>
@@ -257,6 +261,49 @@ bool lexArgs(CharSourceRange Call, const SourceManager &SM, const LangOptions &L
   return !Names.empty();
 }
 
+// The C library's assertion handlers, called by assert() when NDEBUG is not
+// defined.
+bool isLibcAssertHandler(StringRef Name) {
+  return Name == "__assert_fail" || Name == "__assert_perror_fail" ||
+         Name == "__assert" || Name == "__assert_rtn" || Name == "__assert2" ||
+         Name == "_assert" || Name == "_wassert" || Name == "__assert_func";
+}
+
+// The definition at Loc sits inside an #if/#ifdef/#ifndef (or an #elif of
+// one) whose condition mentions DEBUG or NDEBUG: a debug-only definition
+// (`#ifndef NDEBUG`, Traffic Server `#if defined(DEBUG) || ...`).
+bool inDebugConditional(SourceLocation Loc, const SourceManager &SM) {
+  bool Invalid = false;
+  StringRef Buf = SM.getBufferData(SM.getFileID(Loc), &Invalid);
+  if (Invalid)
+    return false;
+  unsigned Off = SM.getFileOffset(Loc);
+  StringRef Before = Buf.substr(0, Off);
+  int Depth = 0;
+  while (!Before.empty()) {
+    size_t NL = Before.rfind('\n');
+    StringRef Line = NL == StringRef::npos ? Before : Before.substr(NL + 1);
+    Before = NL == StringRef::npos ? StringRef() : Before.substr(0, NL);
+    Line = Line.ltrim();
+    if (!Line.consume_front("#"))
+      continue;
+    Line = Line.ltrim();
+    if (Line.starts_with("endif")) {
+      ++Depth;
+    } else if (Line.starts_with("if")) {
+      if (Depth == 0) {
+        if (Line.contains("DEBUG"))
+          return true;
+      } else {
+        --Depth;
+      }
+    } else if (Line.starts_with("elif") && Depth == 0 && Line.contains("DEBUG")) {
+      return true;
+    }
+  }
+  return false;
+}
+
 class AssertOnlyBoundChecker : public Checker<check::ASTCodeBody> {
 public:
   void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr, BugReporter &BR) const {
@@ -306,15 +353,36 @@ public:
 
     // An assertion whose own code (not its argument) calls a function that
     // returns reports and goes on in every build (a test harness's
-    // assertion_assert()); one that is compiled out or calls a noreturn
-    // function (__assert_fail, abort) is the debug-only kind.
+    // assertion_assert()), and one that calls the project's own noreturn
+    // handler through macros not defined under a DEBUG/NDEBUG switch aborts
+    // in every build (OpenVPN ASSERT); one that is compiled out, calls the C
+    // library's handler (__assert_fail) or is defined under a debug switch
+    // (Traffic Server ink_assert) is the debug-only kind.
     walk(Body, [&](const Stmt *S) {
       const auto *CE = dyn_cast<CallExpr>(S);
       if (!CE || !CE->getBeginLoc().isMacroID() || SM.isMacroArgExpansion(CE->getBeginLoc()))
         return;
       const FunctionDecl *FD = CE->getDirectCallee();
-      if (!FD || FD->getBuiltinID() || FD->isNoReturn())
+      if (!FD || FD->getBuiltinID())
         return;
+      if (FD->isNoReturn()) {
+        // A project's own noreturn handler, with no macro on the way
+        // defined under a debug switch, aborts in every build too (OpenVPN
+        // `ASSERT(x)` calling assert_failed()).
+        if (isLibcAssertHandler(FD->getName()))
+          return;
+        Preprocessor &PP = Mgr.getPreprocessor();
+        for (SourceLocation M = CE->getBeginLoc(); M.isMacroID();
+             M = SM.getImmediateMacroCallerLoc(M)) {
+          if (SM.isMacroArgExpansion(M))
+            continue;
+          StringRef Name = Lexer::getImmediateMacroName(M, SM, LO);
+          const IdentifierInfo *II = PP.getIdentifierInfo(Name);
+          const MacroInfo *MI = PP.getMacroDefinitionAtLoc(II, M).getMacroInfo();
+          if (!MI || inDebugConditional(MI->getDefinitionLoc(), SM))
+            return;
+        }
+      }
       SourceLocation L = SM.getExpansionLoc(CE->getBeginLoc());
       llvm::erase_if(Asserts, [&](const Assertion &A) { return within(L, A.Begin, A.End); });
     });

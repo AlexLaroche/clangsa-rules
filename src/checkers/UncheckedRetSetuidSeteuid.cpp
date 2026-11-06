@@ -1,5 +1,6 @@
 // raptor.UncheckedRetSetuidSeteuid: setuid()/seteuid() whose
-// return value is not assigned, compared, negated, or returned.
+// return value is not assigned, compared, negated, returned, or used as a
+// condition (`if (setuid(uid)) fatal(...)`: non-zero is failure).
 #include "Common.h"
 #include "Registry.h"
 #include "RetUtil.h"
@@ -22,6 +23,15 @@ public:
       raptor::RetUse U = raptor::retUse(CE, Ctx, /*ThroughNot=*/true);
       if (U.Negated || raptor::isInitializer(U) ||
           llvm::isa_and_nonnull<ReturnStmt>(U.User))
+        continue;
+      if (const auto *If = llvm::dyn_cast_or_null<IfStmt>(U.User);
+          If && If->getCond() == U.Operand)
+        continue;
+      if (const auto *W = llvm::dyn_cast_or_null<WhileStmt>(U.User);
+          W && W->getCond() == U.Operand)
+        continue;
+      if (const auto *CO = llvm::dyn_cast_or_null<ConditionalOperator>(U.User);
+          CO && CO->getCond() == U.Operand)
         continue;
       if (const auto *BO = llvm::dyn_cast_or_null<BinaryOperator>(U.User)) {
         bool IsLHS = BO->getLHS() == U.Operand;

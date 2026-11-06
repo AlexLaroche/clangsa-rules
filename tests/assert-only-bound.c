@@ -240,3 +240,35 @@ int read_nonzero(unsigned char *hdr, const unsigned char *src, size_t srcSize)
 	memcpy(hdr, src, srcSize);
 	return 0;
 }
+
+// An assertion that aborts through the project's own handler, defined
+// unconditionally, runs in every build (OpenVPN `ASSERT(x)` calling the
+// noreturn assert_failed()).
+void my_assert_failed(const char *file, int line, const char *cond) __attribute__((noreturn));
+#define MY_ASSERT(x)                                    \
+	do {                                                \
+		if (!(x))                                       \
+			my_assert_failed(__FILE__, __LINE__, #x);   \
+	} while (0)
+void always_on_copy(unsigned char *dst, const unsigned char *src, size_t n) {
+	// ok: raptor-assert-only-bound
+	MY_ASSERT(n <= 16);
+	memcpy(dst, src, n);
+}
+
+// The same handler behind a debug switch is compiled out of release builds
+// (Traffic Server `#if defined(DEBUG) ... #define ink_assert(EX) ...`).
+#ifndef NDEBUG
+#define DBG_ASSERT(x)                                   \
+	do {                                                \
+		if (!(x))                                       \
+			my_assert_failed(__FILE__, __LINE__, #x);   \
+	} while (0)
+#else
+#define DBG_ASSERT(x) ((void)0)
+#endif
+void debug_only_copy(unsigned char *dst, const unsigned char *src, size_t n) {
+	// ruleid: raptor-assert-only-bound
+	DBG_ASSERT(n <= 16);
+	memcpy(dst, src, n);
+}

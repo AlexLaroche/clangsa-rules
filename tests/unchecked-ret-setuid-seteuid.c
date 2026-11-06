@@ -33,6 +33,21 @@ int drop_priv_temp2()
 	// ...
 }
 
+// The call as the condition itself: non-zero means failure (OpenVPN
+// `if (setuid(state->uid)) msg(M_ERR, ...)`).
+void fatal(const char *msg);
+void drop_priv_condition(uid_t uid)
+{
+	// ok: raptor-unchecked-ret-setuid-seteuid
+	if (setuid(uid))
+		fatal("setuid");
+	// ok: raptor-unchecked-ret-setuid-seteuid
+	while (seteuid(uid))
+		fatal("seteuid");
+	// ruleid: raptor-unchecked-ret-setuid-seteuid
+	(void)setuid(uid);
+}
+
 int main()
 {
 	printf("Hello, World!");
