@@ -1,6 +1,6 @@
 {
   "name": "openexr-pxr24-widened-product",
-  "cve": "CVE-2026-34588",
+  "cve": "CVE-2026-34380",
   "repo": "https://github.com/AcademySoftwareFoundation/openexr.git",
   "vulnerable": "881b546bfb100d8588401d0b087a2d47d55e9862",
   "fixed": "a5e5a2eba975b57f77e1c6b6d22ecc49553624e2",

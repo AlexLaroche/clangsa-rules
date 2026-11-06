@@ -3,7 +3,7 @@
 // size_t field set from an int product): the program wants the full value,
 // but the multiplication has already wrapped. Size checks and offsets built
 // on it pass with a small number (CWE-190, CWE-681, CWE-787).
-// Modelled on CVE-2026-34588 (OpenEXR internal_pxr24.c undo_pxr24:
+// Modelled on CVE-2026-34380 (OpenEXR internal_pxr24.c undo_pxr24:
 // `if (nDec + (uint64_t) (w * 3) > outSize)`, fixed as `(uint64_t) w * 3`),
 // CVE-2026-41142 (OpenEXR ImageChannel::resize: `_numPixels = _pixelsPerRow *
 // _pixelsPerColumn;` with int factors and a size_t field) and CVE-2026-21486
@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// CVE-2026-34588: an explicit cast of the product, a constant factor.
+// CVE-2026-34380: an explicit cast of the product, a constant factor.
 int undo_pxr24(uint64_t nDec, uint64_t outSize, int w)
 {
 	// ruleid: raptor-narrow-product-widened

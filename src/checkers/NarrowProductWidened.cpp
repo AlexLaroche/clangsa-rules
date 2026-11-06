@@ -17,7 +17,7 @@
 // do products guarded by a division check on a factor (`a > UINT32_MAX / b`)
 // or an overflow helper (`__builtin_mul_overflow`).
 //
-// CVE-2026-34588 (OpenEXR undo_pxr24), CVE-2026-41142 (OpenEXR
+// CVE-2026-34380 (OpenEXR undo_pxr24), CVE-2026-41142 (OpenEXR
 // ImageChannel::resize), CVE-2026-21486 (iccDEV
 // CIccTagSparseMatrixArray::Read).
 #include "Common.h"
