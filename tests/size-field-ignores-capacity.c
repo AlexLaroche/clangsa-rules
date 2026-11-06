@@ -298,3 +298,60 @@ int other_name_bad(const Asn1Buf *san, Asn1Buf *oid, const unsigned char *lim) {
   return 0;
 }
 
+// The buffer was allocated for the size (FFmpeg dovi_rpu_update_fragments_hevc:
+// `ref = av_buffer_alloc(rpu_size + 3); ... nal->data = ref->data;
+// nal->data_size = rpu_size + 3;`; ff_get_encode_buffer:
+// `av_fast_padded_malloc(&avci->byte_buffer, &avci->byte_buffer_size, size);
+// avpkt->data = avci->byte_buffer; avpkt->size = size;`).
+typedef struct BufRef { unsigned char *data; unsigned size; } BufRef;
+BufRef *bufref_alloc(unsigned size);
+typedef struct Nal { unsigned char *data; unsigned data_size; } Nal;
+int nal_rewrap(Nal *nal, unsigned rpu_size)
+{
+	BufRef *ref = bufref_alloc(rpu_size + 3);
+	if (!ref)
+		return -1;
+	nal->data = ref->data;
+	// ok: raptor-size-field-ignores-capacity
+	nal->data_size = rpu_size + 3;
+	return 0;
+}
+typedef struct Internal { unsigned char *byte_buffer; unsigned byte_buffer_size; } Internal;
+typedef struct Pkt { unsigned char *data; unsigned size; } Pkt;
+void fast_malloc(void *ptr, unsigned *cap, unsigned min);
+int get_buffer(Internal *avci, Pkt *pkt, unsigned size)
+{
+	fast_malloc(&avci->byte_buffer, &avci->byte_buffer_size, size);
+	pkt->data = avci->byte_buffer;
+	if (!pkt->data)
+		return -1;
+	// ok: raptor-size-field-ignores-capacity
+	pkt->size = size;
+	return 0;
+}
+// Allocated for another size: still reported.
+int nal_rewrap_other(Nal *nal, unsigned rpu_size, unsigned n)
+{
+	BufRef *ref = bufref_alloc(rpu_size);
+	if (!ref)
+		return -1;
+	nal->data = ref->data;
+	// ruleid: raptor-size-field-ignores-capacity
+	nal->data_size = n;
+	return 0;
+}
+// The size counts what the function wrote through the pointer (FFmpeg
+// ff_h2645_extract_rbsp: `dst = &rbsp->rbsp_buffer[...]; ... dst[di++] =
+// src[si++]; ... nal->data = dst; nal->size = di;`).
+typedef struct Rbsp { unsigned char *rbsp_buffer; unsigned rbsp_buffer_size; } Rbsp;
+typedef struct H2645Nal { unsigned char *data; unsigned size; } H2645Nal;
+void extract(Rbsp *rbsp, H2645Nal *nal, const unsigned char *src, unsigned length)
+{
+	unsigned char *dst = &rbsp->rbsp_buffer[rbsp->rbsp_buffer_size];
+	unsigned si = 0, di = 0;
+	while (si < length)
+		dst[di++] = src[si++];
+	nal->data = dst;
+	// ok: raptor-size-field-ignores-capacity
+	nal->size = di;
+}

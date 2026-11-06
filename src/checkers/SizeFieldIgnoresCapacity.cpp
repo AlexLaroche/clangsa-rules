@@ -25,7 +25,11 @@
 // the object holding the buffer (`r->base = b->base; r->length =
 // b->current;`): that object keeps its own bookkeeping within its capacity; a
 // size written by a call handed the buffer's bound (`get_tag(&p, end, &len)`
-// with `end = p + buf->len`).
+// with `end = p + buf->len`); a buffer (or its owner) allocated by a call
+// given the size (`ref = av_buffer_alloc(n + 3); x->data = ref->data;
+// x->size = n + 3;`, `av_fast_padded_malloc(&o->buf, &o->buf_size, size)`,
+// FFmpeg); a size that indexes the function's writes through the pointer
+// (`dst[di++] = ...; x->data = dst; x->size = di;`).
 //
 // CVE-2026-111381 (FreeRDP persistent cache v2 parser).
 #include "Common.h"
@@ -33,6 +37,7 @@
 #include "Registry.h"
 #include "clang/AST/ParentMap.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
+#include "clang/Lex/Lexer.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 
 using namespace clang;
@@ -170,6 +175,10 @@ public:
         // &len)` with `end = p + buf->len`).
         if (fromBoundedParser(Size, Caps, Defs, Calls))
           continue;
+        if (allocatedFor(Size, Buf, Body, Calls, Ctx))
+          continue;
+        if (writtenCount(Size, PtrA->getRHS(), Body))
+          continue;
         raptor::reportAt(BR, this, "Size field ignores capacity",
                          "'" + raptor_mem::keyOf(SizeME) + "' describes '" +
                              raptor_mem::keyOf(Buf) + "', whose capacity is '" + *Caps.begin() +
@@ -181,6 +190,84 @@ public:
   }
 
 private:
+  static std::string squeezed(const Expr *E, ASTContext &Ctx) {
+    const SourceManager &SM = Ctx.getSourceManager();
+    CharSourceRange R = SM.getExpansionRange(E->getSourceRange());
+    std::string T;
+    for (char Ch : Lexer::getSourceText(R, SM, Ctx.getLangOpts()))
+      if (!isspace(static_cast<unsigned char>(Ch)))
+        T += Ch;
+    return T;
+  }
+
+  // A call given Size as an argument that allocates the buffer: it is handed
+  // &Buf, or its result is assigned to Buf or to the object holding it.
+  static bool allocatedFor(const Expr *Size, const MemberExpr *Buf,
+                           const Stmt *Body,
+                           const std::vector<const CallExpr *> &Calls,
+                           ASTContext &Ctx) {
+    std::string ST = squeezed(Size, Ctx);
+    std::string BK = raptor_mem::keyOf(Buf),
+                OK = raptor_mem::keyOf(Buf->getBase());
+    for (const CallExpr *C : Calls) {
+      bool HasSize = false, HandsBuf = false;
+      for (const Expr *A : C->arguments()) {
+        HasSize |= !ST.empty() && squeezed(A, Ctx) == ST;
+        if (const auto *U = dyn_cast<UnaryOperator>(raptor::strip(A));
+            U && U->getOpcode() == UO_AddrOf)
+          HandsBuf |= raptor_mem::keyOf(U->getSubExpr()) == BK;
+      }
+      if (!HasSize)
+        continue;
+      if (HandsBuf)
+        return true;
+      bool Assigned = false;
+      walk(Body, [&](const Stmt *S) {
+        std::string LK;
+        const Expr *RHS = nullptr;
+        if (const auto *BO = dyn_cast<BinaryOperator>(S);
+            BO && BO->getOpcode() == BO_Assign) {
+          LK = raptor_mem::keyOf(BO->getLHS());
+          RHS = BO->getRHS();
+        } else if (const auto *DS = dyn_cast<DeclStmt>(S)) {
+          for (const Decl *Dc : DS->decls())
+            if (const auto *VD = dyn_cast<VarDecl>(Dc); VD && VD->getInit() &&
+                                                         raptor::strip(VD->getInit()) == C)
+              Assigned |= VD->getName() == OK || VD->getName() == BK;
+        }
+        if (RHS && raptor::strip(RHS) == C && (LK == BK || LK == OK))
+          Assigned = true;
+      });
+      if (Assigned)
+        return true;
+    }
+    return false;
+  }
+
+  // Size is a local used as the index of writes `P[size++] = ...` through
+  // the pointer stored in the field (a local P).
+  static bool writtenCount(const Expr *Size, const Expr *PtrRHS,
+                           const Stmt *Body) {
+    const VarDecl *N = localVar(Size), *P = localVar(PtrRHS);
+    if (!N || !P)
+      return false;
+    bool Writes = false;
+    walk(Body, [&](const Stmt *S) {
+      const auto *BO = dyn_cast<BinaryOperator>(S);
+      if (!BO || !BO->isAssignmentOp())
+        return;
+      const auto *AS =
+          dyn_cast<ArraySubscriptExpr>(BO->getLHS()->IgnoreParenImpCasts());
+      if (!AS || localVar(AS->getBase()) != P)
+        return;
+      walk(AS->getIdx(), [&](const Stmt *X) {
+        if (const auto *E = dyn_cast<Expr>(X); E && localVar(E) == N)
+          Writes = true;
+      });
+    });
+    return Writes;
+  }
+
   // Is Key, or an object it is a part of (`e` for `e.data`, `name` for
   // `name->data`... only when that object is in Owned), set in this function?
   static bool builtHere(const std::string &Key, const std::set<std::string> &Owned) {
