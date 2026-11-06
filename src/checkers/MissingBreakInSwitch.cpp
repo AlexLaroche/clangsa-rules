@@ -17,7 +17,10 @@ using namespace ast_matchers;
 
 namespace {
 
-// Does S end the case, i.e. is it break/return/goto/exit(...)?
+bool allCasesLeave(const SwitchStmt *SW);
+
+// Does S end the case, i.e. is it break/continue/return/goto/exit(...), or an
+// inner switch with a default whose every case leaves the function?
 bool isTerminator(const Stmt *S) {
   if (!S)
     return false;
@@ -40,8 +43,10 @@ bool isTerminator(const Stmt *S) {
         return true;
     return isTerminator(AS->getSubStmt());
   }
-  if (isa<BreakStmt, ReturnStmt, GotoStmt, IndirectGotoStmt>(S))
+  if (isa<BreakStmt, ContinueStmt, ReturnStmt, GotoStmt, IndirectGotoStmt>(S))
     return true;
+  if (const auto *SW = dyn_cast<SwitchStmt>(S))
+    return allCasesLeave(SW);
   if (const auto *E = dyn_cast<Expr>(S))
     if (const auto *CE = dyn_cast<CallExpr>(E->IgnoreParenCasts()))
     {
@@ -53,6 +58,56 @@ bool isTerminator(const Stmt *S) {
                               "__builtin_unreachable", "__builtin_trap"});
     }
   return false;
+}
+
+// Does S hold a break that leaves the statement it is in (not one of a
+// nested loop or switch)?
+bool breaksOut(const Stmt *S) {
+  if (!S)
+    return false;
+  if (isa<BreakStmt>(S))
+    return true;
+  if (isa<ForStmt, WhileStmt, DoStmt, SwitchStmt>(S))
+    return false;
+  for (const Stmt *C : S->children())
+    if (breaksOut(C))
+      return true;
+  return false;
+}
+
+// Does SW (which has a default) never reach the code after it: no break out
+// of it, and its last case group ends in a terminator? Its other groups end
+// in one or fall into the next (nghttp2 session_after_frame_sent1's
+// `/* Fall through */` cases); this rule reports those on SW itself.
+bool allCasesLeave(const SwitchStmt *SW) {
+  const auto *Body = dyn_cast_or_null<CompoundStmt>(SW->getBody());
+  if (!Body)
+    return false;
+  bool Default = false;
+  for (const SwitchCase *C = SW->getSwitchCaseList(); C;
+       C = C->getNextSwitchCase())
+    Default |= isa<DefaultStmt>(C);
+  if (!Default)
+    return false;
+  const Stmt *Last = nullptr;
+  bool InGroup = false;
+  for (const Stmt *S : Body->body()) {
+    if (breaksOut(S) && !isa<SwitchCase>(S))
+      return false;
+    if (const auto *SC = dyn_cast<SwitchCase>(S)) {
+      InGroup = true;
+      const Stmt *Sub = SC->getSubStmt();
+      while (const auto *Inner = dyn_cast<SwitchCase>(Sub))
+        Sub = Inner->getSubStmt();
+      if (breaksOut(Sub))
+        return false;
+      Last = isa<NullStmt>(Sub) ? nullptr : Sub;
+      continue;
+    }
+    if (InGroup && !isa<NullStmt>(S))
+      Last = S;
+  }
+  return Last && isTerminator(Last);
 }
 
 class MissingBreakInSwitchChecker : public Checker<check::ASTCodeBody> {

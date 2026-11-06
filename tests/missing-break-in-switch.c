@@ -267,6 +267,90 @@ int fs_work(int type)
 	return r;
 }
 
+// A case that ends in an inner switch whose every case, default included,
+// leaves (nghttp3 nghttp3_stream_transit_rx_http_state).
+void fail_unreachable(void) __attribute__((noreturn));
+int transit(int st, int ev)
+{
+	// ok: raptor-missing-break-in-switch
+	switch (st) {
+	case 1:
+		switch (ev) {
+		case 1:
+			return 0;
+		case 2:
+			if (st)
+				return 1;
+			return 2;
+		default:
+			fail_unreachable();
+		}
+	case 2:
+		return 3;
+	default:
+		return -1;
+	}
+}
+// Inner cases that fall into each other before the last one leaves (nghttp2
+// session_after_frame_sent1).
+int sent(int type, int cat, int *st)
+{
+	// ok: raptor-missing-break-in-switch
+	switch (type) {
+	case 1:
+		// ok: raptor-missing-break-in-switch
+		switch (cat) {
+		case 1:
+			*st = 1;
+		/* Fall through */
+		case 2:
+			*st += 2;
+			return 0;
+		default:
+			return -1;
+		}
+	case 2:
+		return 0;
+	default:
+		return -1;
+	}
+}
+// An inner switch that can break out of itself falls through.
+int transit_break(int st, int ev)
+{
+	// ruleid: raptor-missing-break-in-switch
+	switch (st) {
+	case 1:
+		switch (ev) {
+		case 1:
+			break;
+		default:
+			return 1;
+		}
+	case 2:
+		return 3;
+	default:
+		return -1;
+	}
+}
+// `continue` leaves the case for the next turn of the loop (sfparse
+// parser_byteseq: `case 1: continue;`).
+int scan(const unsigned char *p, int n)
+{
+	for (; n > 0; --n, ++p) {
+		// ok: raptor-missing-break-in-switch
+		switch (*p) {
+		case 0:
+			return -1;
+		case 1:
+			continue;
+		default:
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int main()
 {
 	printf("Hello, World!");
