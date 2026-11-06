@@ -375,3 +375,56 @@ int typos_flag_tests(unsigned flags, unsigned len, int a, int b)
 		return 6;
 	return 0;
 }
+
+// A bitwise operator inside a call argument builds that argument (a mask
+// passed to a lookup); it is not the condition's operator (WireGuard
+// `if (!wg_index_hashtable_lookup(t, HANDSHAKE | KEYPAIR, ...))`).
+#define TYPE_HANDSHAKE 1
+#define TYPE_KEYPAIR 2
+int lookup_entry(int table, unsigned mask, unsigned index);
+int typos_mask_argument(int table, unsigned index, unsigned a, unsigned b)
+{
+	// ok: raptor-typos
+	if (!lookup_entry(table, TYPE_HANDSHAKE | TYPE_KEYPAIR, index))
+		return 1;
+	// ok: raptor-typos
+	if (lookup_entry(table, a & b, index) > 0)
+		return 2;
+	// ruleid: raptor-typos
+	if (lookup_entry(table, a, index) & b)
+		return 3;
+	return 0;
+}
+
+// Differently spelled operands that expand to the same value are
+// configuration checks, not copy-paste typos (kernel
+// `IS_ENABLED(CONFIG_A) || IS_ENABLED(CONFIG_B)`,
+// `static_assert(AES_BLOCK_SIZE == AES_KEYSIZE_128)`).
+#define CONFIG_A 0
+#define CONFIG_B 0
+#define BLOCK_SIZE 16
+#define KEYSIZE_128 16
+#define CHECK(e) (e)
+#define ENABLED(o) (0 || (o))
+int typos_same_value_macros(int x, int y)
+{
+	// ok: raptor-typos
+	if (CONFIG_A || CONFIG_B)
+		return 1;
+	// ok: raptor-typos
+	if (BLOCK_SIZE == KEYSIZE_128)
+		return 2;
+	// ok: raptor-typos
+	if (CHECK(BLOCK_SIZE == KEYSIZE_128))
+		return 5;
+	// ok: raptor-typos
+	if (ENABLED(CONFIG_A) || ENABLED(CONFIG_B))
+		return 6;
+	// ruleid: raptor-typos
+	if (CONFIG_A || CONFIG_A)
+		return 3;
+	// ruleid: raptor-typos
+	if (x == y && x == y)
+		return 4;
+	return 0;
+}

@@ -220,3 +220,26 @@ int count_names(void)
 	n += sizeof(names) / sizeof(*names);
 	return n;
 }
+
+// sizeof(p) compared with a type size, or switched on, checks the pointer's
+// width (kernel READ_ONCE: `sizeof(x) == sizeof(long)`, this_cpu_read:
+// `switch (sizeof(var))`); no memory size is involved.
+int pointer_width_checks(char *p)
+{
+	int n = 0;
+
+	// ok: raptor-incorrect-use-of-sizeof
+	if (sizeof(p) == sizeof(long))
+		n++;
+	// ok: raptor-incorrect-use-of-sizeof
+	switch (sizeof(p)) {
+	case 8:
+		n++;
+		break;
+	default:
+		break;
+	}
+	// ruleid: raptor-incorrect-use-of-sizeof
+	memset(p, 0, sizeof(p));
+	return n;
+}

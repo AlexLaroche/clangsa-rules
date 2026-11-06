@@ -8,6 +8,9 @@
 //  - sizeof(this) in C++;
 //  - sizeof('c') in C, where a character literal is an int (the semgrep rule
 //    would like to match it but semgrep cannot).
+// A sizeof compared with a constant or switched on checks a width, not a memory
+// size (kernel READ_ONCE `sizeof(x) == sizeof(long)`, this_cpu_read
+// `switch (sizeof(var))`), and is not reported.
 #include "BufHelpers.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
@@ -52,6 +55,32 @@ bool isPointerVar(const Expr *E) {
   return T->isPointerType() && !T->isFunctionPointerType();
 }
 
+// sizeof(...) (through parentheses and implicit casts) is compared with a
+// constant or is the condition of a switch.
+bool isWidthCheck(const Expr *E, ASTContext &Ctx) {
+  const Stmt *Cur = E;
+  while (true) {
+    auto Parents = Ctx.getParents(*Cur);
+    if (Parents.empty())
+      return false;
+    if (const auto *P = Parents[0].get<Expr>();
+        P && (isa<ParenExpr>(P) || isa<ImplicitCastExpr>(P))) {
+      Cur = P;
+      continue;
+    }
+    if (const auto *BO = Parents[0].get<BinaryOperator>()) {
+      // compared with another constant (sizeof(long), 8), not with an index
+      // (`i < sizeof(arr)` is a bound)
+      const Expr *Other = BO->getLHS() == Cur ? BO->getRHS() : BO->getLHS();
+      return BO->isComparisonOp() && !Other->isValueDependent() &&
+             Other->isIntegerConstantExpr(Ctx);
+    }
+    if (const auto *SW = Parents[0].get<SwitchStmt>())
+      return SW->getCond() == Cur;
+    return false;
+  }
+}
+
 class IncorrectUseOfSizeofChecker : public Checker<check::ASTCodeBody> {
 public:
   void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr,
@@ -78,7 +107,7 @@ public:
             Bad = true;
           else if (isa<CharacterLiteral>(Arg) && !LO.CPlusPlus)
             Bad = true;
-          if (Bad)
+          if (Bad && !isWidthCheck(U, Mgr.getASTContext()))
             raptor::reportAt(
                 BR, this, "Incorrect use of sizeof()",
                 "The code calls sizeof() on a pointer type, which always "

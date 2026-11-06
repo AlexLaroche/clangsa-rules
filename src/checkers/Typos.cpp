@@ -2,8 +2,11 @@
 //   for (a == b; ...)            a == b;
 //   if (... a = b ...)           unless (a = b) is compared
 //   if (... a & b ...)           unless (a & b) is compared  (same for |),
-//                                or b is a constant mask (`flags & FLAG`)
-//   a =+ b                       (E op E) for &&, ||, ==, !=, <, <=, >, >=
+//                                or b is a constant mask (`flags & FLAG`),
+//                                or it builds a call argument (`f(A | B)`)
+//   a =+ b                       (E op E) for &&, ||, ==, !=, <, <=, >, >=,
+//                                unless the operands are spelled differently
+//                                (`IS_ENABLED(A) || IS_ENABLED(B)`)
 //   (char *)p = / == / != '\0'   if (... strcpy()/strncpy() ...)
 //   if (x);   for (a; b; c);     char buf[040];  (octal array size)
 // Operators coming from macro bodies are skipped: semgrep sees the macro
@@ -30,7 +33,36 @@ bool fromMacro(const BinaryOperator *BO, const ASTContext &Ctx) {
   return false;
 }
 
+// Where L is written: a token from a macro argument maps to where the
+// argument is written, a token from a macro body to the start (or end) of
+// that macro call, until a file location is reached.
+SourceLocation written(SourceLocation L, const SourceManager &SM, bool End) {
+  while (L.isMacroID()) {
+    if (SM.isMacroArgExpansion(L))
+      L = SM.getImmediateSpellingLoc(L);
+    else {
+      CharSourceRange R = SM.getImmediateExpansionRange(L);
+      L = End ? R.getEnd() : R.getBegin();
+    }
+  }
+  return L;
+}
+
+// The source text of E, as written (macro calls unexpanded).
+StringRef spelled(const Expr *E, const ASTContext &Ctx) {
+  const SourceManager &SM = Ctx.getSourceManager();
+  CharSourceRange R = CharSourceRange::getTokenRange(
+      written(E->getBeginLoc(), SM, false), written(E->getEndLoc(), SM, true));
+  return Lexer::getSourceText(R, SM, Ctx.getLangOpts());
+}
+
+// Identical operands. Operands written differently that expand to the same
+// value (`IS_ENABLED(A) || IS_ENABLED(B)`, `SIZE_A == SIZE_B`) are
+// configuration checks, not typos.
 bool sameExpr(const Expr *A, const Expr *B, const ASTContext &Ctx) {
+  if ((A->getBeginLoc().isMacroID() || B->getBeginLoc().isMacroID()) &&
+      spelled(A, Ctx) != spelled(B, Ctx))
+    return false;
   llvm::FoldingSetNodeID IA, IB;
   A->IgnoreParenImpCasts()->Profile(IA, Ctx, /*Canonical=*/true);
   B->IgnoreParenImpCasts()->Profile(IB, Ctx, /*Canonical=*/true);
@@ -92,6 +124,24 @@ bool inFlagMask(const BinaryOperator *BO, ASTContext &Ctx) {
     return false;
   }
 }
+// E (through parentheses and casts) is an argument of a call: it builds that
+// argument (`lookup(t, A | B)`), whatever the call's result is used for.
+bool isCallArgument(const Expr *E, ASTContext &Ctx) {
+  const Stmt *Cur = E;
+  while (true) {
+    auto Parents = Ctx.getParents(*Cur);
+    if (Parents.empty())
+      return false;
+    if (const auto *P = Parents[0].get<Expr>();
+        P && (isa<ParenExpr>(P) || isa<CastExpr>(P))) {
+      Cur = P;
+      continue;
+    }
+    if (const auto *CE = Parents[0].get<CallExpr>())
+      return CE->getCallee() != Cur;
+    return false;
+  }
+}
 bool isCharPointer(QualType T) {
   return T->isPointerType() && T->getPointeeType()->isAnyCharacterType();
 }
@@ -124,6 +174,8 @@ class TyposChecker : public Checker<check::ASTCodeBody> {
       if (fromMacro(BO, Ctx) || isComparedLHS(BO, Ctx))
         continue;
       if (isFlagTest(BO, Ctx) || inFlagMask(BO, Ctx))
+        continue;
+      if (BO->getOpcode() != BO_Assign && isCallArgument(BO, Ctx))
         continue;
       Assign |= BO->getOpcode() == BO_Assign;
       BitAnd |= BO->getOpcode() == BO_And;
