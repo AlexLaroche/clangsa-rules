@@ -351,6 +351,23 @@ int scan(const unsigned char *p, int n)
 	return 0;
 }
 
+// Falling into a case that only breaks runs nothing more (nghttp2
+// ClientHandler::get_downstream_addr: `case API: case HEALTHMON: assert(0);
+// default: break;`).
+#include <assert.h>
+int alt_mode(int mode)
+{
+	// ok: raptor-missing-break-in-switch
+	switch (mode) {
+	case 1:
+	case 2:
+		assert(0);
+	default:
+		break;
+	}
+	return mode;
+}
+
 int main()
 {
 	printf("Hello, World!");

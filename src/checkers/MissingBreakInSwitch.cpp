@@ -3,7 +3,7 @@
 // break, return, goto or a call that does not return (exit(), abort(),
 // __builtin_unreachable(), a noreturn function), also behind a label
 // (llhttp's generated `case s_x: s_x: { ... UNREACHABLE; }`).
-// A fall-through marked as intended (`/* FALLTHROUGH */`, `// fall through`,
+// A fall-through into a case that only breaks, or one marked as intended (`/* FALLTHROUGH */`, `// fall through`,
 // `__attribute__((fallthrough))`, `[[fallthrough]]`) is not reported.
 #include "Common.h"
 #include "Registry.h"
@@ -148,6 +148,17 @@ private:
     return std::regex_search(T.begin(), T.end(), Re);
   }
 
+  // Is the case group at SC just `break;` (`default: break;`)? Falling into
+  // it runs nothing more.
+  static bool onlyBreaks(const SwitchCase *SC) {
+    const Stmt *Sub = SC->getSubStmt();
+    while (const auto *Inner = dyn_cast<SwitchCase>(Sub))
+      Sub = Inner->getSubStmt();
+    if (const auto *CS = dyn_cast<CompoundStmt>(Sub))
+      return CS->size() == 1 && isa<BreakStmt>(CS->body_front());
+    return isa<BreakStmt>(Sub);
+  }
+
   static bool hasFallthrough(const SwitchStmt *SW, ASTContext &Ctx) {
     const auto *Body = dyn_cast_or_null<CompoundStmt>(SW->getBody());
     if (!Body)
@@ -157,7 +168,7 @@ private:
     for (const Stmt *S : Body->body()) {
       if (const auto *SC = dyn_cast<SwitchCase>(S)) {
         if (InGroup && Last && !isTerminator(Last) &&
-            !markedIntended(Last, SC, Ctx))
+            !markedIntended(Last, SC, Ctx) && !onlyBreaks(SC))
           return true;
         InGroup = true;
         // case A: case B: stmt -> nested SwitchCases
