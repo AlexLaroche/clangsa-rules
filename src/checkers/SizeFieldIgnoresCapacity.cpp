@@ -23,7 +23,9 @@
 // (`for (j = 7; j < value->len; j++) len++;`, `if (n > c->bmpSize)`); a
 // capacity field set from the slice; a size taken from another field of
 // the object holding the buffer (`r->base = b->base; r->length =
-// b->current;`): that object keeps its own bookkeeping within its capacity.
+// b->current;`): that object keeps its own bookkeeping within its capacity; a
+// size written by a call handed the buffer's bound (`get_tag(&p, end, &len)`
+// with `end = p + buf->len`).
 //
 // CVE-2026-111381 (FreeRDP persistent cache v2 parser).
 #include "Common.h"
@@ -65,7 +67,10 @@ public:
 
     DefMap Defs; // local name -> values it is set to
     std::vector<const BinaryOperator *> FieldAssigns, Compares;
+    std::vector<const CallExpr *> Calls;
     walk(Body, [&](const Stmt *S) {
+      if (const auto *CE = dyn_cast<CallExpr>(S))
+        Calls.push_back(CE);
       if (const auto *DS = dyn_cast<DeclStmt>(S)) {
         for (const Decl *Dc : DS->decls())
           if (const auto *VD = dyn_cast<VarDecl>(Dc))
@@ -161,6 +166,10 @@ public:
         // for b->base): the owner keeps it within its capacity.
         if (fromOwner(Size, Buf, Defs))
           continue;
+        // Written by a parser handed the buffer's bound (`get_tag(&p, end,
+        // &len)` with `end = p + buf->len`).
+        if (fromBoundedParser(Size, Caps, Defs, Calls))
+          continue;
         raptor::reportAt(BR, this, "Size field ignores capacity",
                          "'" + raptor_mem::keyOf(SizeME) + "' describes '" +
                              raptor_mem::keyOf(Buf) + "', whose capacity is '" + *Caps.begin() +
@@ -204,6 +213,29 @@ private:
       }
     }
     return Best;
+  }
+
+  // Does the slice of Size use a local that a call writes through `&local`
+  // while being handed a value built from a capacity field?
+  static bool fromBoundedParser(const Expr *Size, const Keys &Caps, const DefMap &Defs,
+                                const std::vector<const CallExpr *> &Calls) {
+    Keys Sl = slice(Size, Defs);
+    for (const CallExpr *CE : Calls) {
+      bool Out = false, Bound = false;
+      for (const Expr *A : CE->arguments()) {
+        const Expr *X = raptor::strip(A);
+        if (const auto *UO = dyn_cast<UnaryOperator>(X); UO && UO->getOpcode() == UO_AddrOf) {
+          if (Sl.count(raptor_mem::keyOf(UO->getSubExpr())))
+            Out = true;
+          continue;
+        }
+        for (const std::string &K : slice(X, Defs))
+          Bound |= Caps.count(K) > 0;
+      }
+      if (Out && Bound)
+        return true;
+    }
+    return false;
   }
 
   // Does the slice of Size use another part of the object holding Buf?

@@ -266,3 +266,35 @@ void other_region(Buffer *b, Buffer *other, Region *r) {
   // ruleid: raptor-size-field-ignores-capacity
   r->length = other->current;
 }
+
+// The size comes out of a parser that is handed the buffer's end, built from
+// its capacity (Mbed TLS x509_get_other_name: `end = p + san->len;
+// mbedtls_asn1_get_tag(&p, end, &len, ...); oid.p = p; oid.len = len;`): the
+// parser bounds it.
+typedef struct {
+  unsigned char *p;
+  size_t len;
+} Asn1Buf;
+int get_tag(unsigned char **p, const unsigned char *end, size_t *len);
+int other_name(const Asn1Buf *san, Asn1Buf *oid) {
+  unsigned char *p = san->p;
+  const unsigned char *end = p + san->len;
+  size_t len;
+  if (get_tag(&p, end, &len) != 0)
+    return -1;
+  oid->p = p;
+  // ok: raptor-size-field-ignores-capacity
+  oid->len = len;
+  return 0;
+}
+int other_name_bad(const Asn1Buf *san, Asn1Buf *oid, const unsigned char *lim) {
+  unsigned char *p = san->p;
+  size_t len;
+  if (get_tag(&p, lim, &len) != 0)
+    return -1;
+  oid->p = p;
+  // ruleid: raptor-size-field-ignores-capacity
+  oid->len = len;
+  return 0;
+}
+
