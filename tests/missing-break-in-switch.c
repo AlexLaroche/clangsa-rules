@@ -155,6 +155,118 @@ char *escape_string(char *string)
 	return output;
 }
 
+// A generated state machine (llhttp llhttp__internal__run): each case is a
+// labelled block ending in __builtin_unreachable() after an inner switch
+// whose cases all jump away.
+int machine(int st, const unsigned char *p, const unsigned char *endp)
+{
+	// ok: raptor-missing-break-in-switch
+	switch (st) {
+	case 0:
+	s_closed: {
+		if (p == endp)
+			return 0;
+		switch (*p) {
+		case 10:
+			p++;
+			goto s_closed;
+		default:
+			p++;
+			goto s_open;
+		}
+		__builtin_unreachable();
+	}
+	case 1:
+	s_open: {
+		if (p == endp)
+			return 1;
+		p++;
+		goto s_closed;
+	}
+	default:
+		return -1;
+	}
+}
+// A fall-through marked as intended (llhttp llhttp_finish: `/* FALLTHROUGH */`).
+int finish(int mode, int (*cb)(void))
+{
+	int err;
+	// ok: raptor-missing-break-in-switch
+	switch (mode) {
+	case 2:
+		err = cb();
+		if (err != 0)
+			return err;
+	/* FALLTHROUGH */
+	case 1:
+		return 0;
+	default:
+		return -1;
+	}
+}
+int finish_attr(int mode, int (*cb)(void))
+{
+	// ok: raptor-missing-break-in-switch
+	switch (mode) {
+	case 2:
+		cb();
+		__attribute__((fallthrough));
+	case 1:
+		return 0;
+	default:
+		return -1;
+	}
+}
+// An unmarked one is still reported.
+int finish_unmarked(int mode, int (*cb)(void))
+{
+	// ruleid: raptor-missing-break-in-switch
+	switch (mode) {
+	case 2:
+		cb();
+	case 1:
+		return 0;
+	default:
+		return -1;
+	}
+}
+
+// Both branches of an if/else leave (libuv uv_inet_pton).
+int pton(int af, const char *src, char *s)
+{
+	// ok: raptor-missing-break-in-switch
+	switch (af) {
+	case 2:
+		return src[0];
+	case 10: {
+		if (s != 0)
+			return s[0];
+		else
+			return src[1];
+	}
+	default:
+		return -1;
+	}
+}
+// A case macro that ends in break, used with a trailing `;` (libuv uv__fs_work:
+// `#define X(type, action) case UV_FS_##type: r = action; break;`).
+#define XCASE(n, action) \
+	case n:          \
+		r = action;  \
+		break;
+int fs_work(int type)
+{
+	int r = 0;
+	// ok: raptor-missing-break-in-switch
+	switch (type) {
+	XCASE(1, type + 1);
+	XCASE(2, type + 2);
+	default:
+		abort();
+	}
+	return r;
+}
+
 int main()
 {
 	printf("Hello, World!");
