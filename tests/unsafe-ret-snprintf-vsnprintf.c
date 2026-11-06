@@ -360,3 +360,34 @@ int main()
 	printf("Hello, World!");
 	return 0;
 }
+
+// The result compared with the size given to the call: truncation is
+// detected before the length is used (OpenVPN
+// `len = vsnprintf(tmp, sizeof(tmp), format, ap); if (len < 0 || len >= (int)sizeof(tmp)) return false;`).
+#define MAXLEN 256
+int format_checked(const char *fmt, va_list ap)
+{
+	char tmp[MAXLEN];
+	// ok: raptor-unsafe-ret-snprintf-vsnprintf
+	int len = vsnprintf(tmp, sizeof(tmp), fmt, ap);
+	if (len < 0 || len >= (int)sizeof(tmp))
+		return -1;
+	return len;
+}
+
+int format_macro_size(char *out, const char *s)
+{
+	int stat;
+	// ok: raptor-unsafe-ret-snprintf-vsnprintf
+	stat = snprintf(out, MAXLEN, "%s", s);
+	if (stat >= MAXLEN)
+		return -1;
+	return stat;
+}
+
+int format_unchecked(char *out, size_t size, const char *s)
+{
+	// ruleid: raptor-unsafe-ret-snprintf-vsnprintf
+	int n = snprintf(out, size, "%s", s);
+	return n;
+}

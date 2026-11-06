@@ -52,6 +52,44 @@ void qualify_username(char *username)
 	// ...
 }
 
+// The result compared with the size given to the call: truncation is
+// detected (OpenVPN `if (ciphers_len >= len) msg(M_FATAL, ...)`,
+// `buf->len += (str_len < cap) ? str_len : cap - 1`).
+void fatal(const char *msg);
+size_t copy_checked(char *dst, const char *src, size_t len)
+{
+	// ok: raptor-unsafe-ret-strlcpy-strlcat
+	size_t n = strlcpy(dst, src, len);
+	if (n >= len)
+		fatal("too long");
+	return n;
+}
+
+int append_clamped(char *dst, const char *src, int cap)
+{
+	// ok: raptor-unsafe-ret-strlcpy-strlcat
+	int n = (int)strlcat(dst, src, (size_t)cap);
+	return (n < cap) ? n : cap - 1;
+}
+
+#define CHECK(x) do { if (!(x)) fatal(#x); } while (0)
+size_t append_newline(char *buf, size_t size)
+{
+	// ok: raptor-unsafe-ret-strlcpy-strlcat
+	size_t len = strlcat(buf, "\n", size);
+	CHECK(len < size);
+	return len;
+}
+
+size_t copy_compared_elsewhere(char *dst, const char *src, size_t len, size_t other)
+{
+	// ruleid: raptor-unsafe-ret-strlcpy-strlcat
+	size_t n = strlcpy(dst, src, len);
+	if (n >= other)
+		return 0;
+	return n;
+}
+
 int main()
 {
 	printf("Hello, World!");

@@ -1,6 +1,9 @@
 // raptor.UnsafeRetStrlcpyStrlcat: the return value of strlcpy()
 // and friends (the length of the string it tried to create) is stored, and
 // may later be used as if it were the number of bytes actually copied.
+// Not reported: a result compared with the size given to the call
+// (`if (n >= len) fatal(...)`, `n < cap ? n : cap - 1`), which detects
+// truncation.
 #include "Common.h"
 #include "Registry.h"
 #include "RetUtil.h"
@@ -31,6 +34,10 @@ public:
             BO->getRHS() == U.Operand)
           Where = BO;
       if (!Where)
+        continue;
+      if (const clang::VarDecl *V = raptor::resultLocal(Where, CE, Ctx);
+          V && CE->getNumArgs() > 2 &&
+          raptor::comparedWithSize(V, CE->getArg(2), D->getBody(), Ctx))
         continue;
       raptor::reportAt(BR, this, "Unsafe use of strlcpy() return value",
                        raptor::calleeName(CE).str() +

@@ -6,7 +6,9 @@
 // result is used plus at least one (room for the NUL), and a call
 // whose size was derived from such a measure of the same format and
 // arguments (`n = snprintf(NULL, 0, F, a); buf = malloc(n + 1);
-// snprintf(buf, n + 1, F, a)`: nghttp2, nghttp3).
+// snprintf(buf, n + 1, F, a)`: nghttp2, nghttp3), and a result compared
+// with the size given to the call (`if (len < 0 || len >= (int)sizeof(tmp))`:
+// OpenVPN), which detects truncation.
 #include "ApiUtil.h"
 #include "Common.h"
 #include "Registry.h"
@@ -147,6 +149,10 @@ public:
             BO->getRHS() == U.Operand)
           Where = BO;
       if (!Where)
+        continue;
+      if (const clang::VarDecl *V = raptor::resultLocal(Where, CE, Ctx);
+          V && CE->getNumArgs() > 1 &&
+          raptor::comparedWithSize(V, CE->getArg(1), D->getBody(), Ctx))
         continue;
       if (isMeasure(CE, Ctx))
         if (const VarDecl *V = resultVar(Where, CE, D->getBody(), Ctx);
