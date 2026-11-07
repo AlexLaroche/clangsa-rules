@@ -428,3 +428,81 @@ int typos_same_value_macros(int x, int y)
 		return 4;
 	return 0;
 }
+
+// An assignment in its own parentheses is the conventional way to say it is
+// meant (clang's -Wparentheses): `if ((he = lookup(k)))`,
+// `if (!(bio = BIO_new(...)))`, OpenVPN `ASSERT(mac = buf_prepend(...))`.
+void *lookup_item(int key);
+void fail_check(void);
+#define CHECK_ALLOC(x) do { if (!(x)) fail_check(); } while (0)
+int typos_parenthesized_assignment(int key, void **out)
+{
+	void *he;
+	// ok: raptor-typos
+	if ((he = lookup_item(key)))
+		return 1;
+	// ok: raptor-typos
+	if (!(he = lookup_item(key + 1)))
+		return 2;
+	// ok: raptor-typos
+	CHECK_ALLOC(*out = lookup_item(key + 2));
+	// ruleid: raptor-typos
+	if (he = lookup_item(key + 3))
+		return 3;
+	return 0;
+}
+
+// Flags handed to a macro that tests them with its own operator
+// (OpenVPN `msg(M_WARN | M_ERRNO, ...)` expanding to
+// `if ((flags) & M_FATAL) _exit(1);`).
+#define M_FATAL 0x10
+#define M_WARN 0x20
+#define M_ERRNO 0x40
+void do_exit(int code);
+#define EXIT_IF_FATAL(flags) do { if ((flags) & M_FATAL) do_exit(1); } while (0)
+void typos_flags_to_macro(unsigned level, unsigned a)
+{
+	// ok: raptor-typos
+	EXIT_IF_FATAL(M_WARN | M_ERRNO);
+	// ruleid: raptor-typos
+	if (level | a)
+		do_exit(2);
+}
+
+// More flag idioms (OpenVPN): a masked value compared on either side of a
+// comparison, an `|` chain or a ?: branch building an argument, and a test
+// of one bit built by a shift.
+#define OPT_A 1
+#define OPT_B 2
+#define OPT_C 4
+#define BIT(i) (1u << (i))
+int check_perm(unsigned mask);
+#define VERIFY(mask) do { if (!check_perm(mask)) return -1; } while (0)
+int typos_more_flag_idioms(unsigned a, unsigned b, unsigned subnet, unsigned flags,
+			   unsigned verbosity, int optional, unsigned type_mask, int i)
+{
+	// ok: raptor-typos
+	if ((a & subnet) != (b & subnet))
+		return 1;
+	// ok: raptor-typos
+	if (verbosity >= (flags & OPT_C))
+		return 2;
+	// ok: raptor-typos
+	if (!check_perm(OPT_A | OPT_B | OPT_C))
+		return 3;
+	// ok: raptor-typos
+	VERIFY(OPT_A | OPT_B | OPT_C);
+	// ok: raptor-typos
+	if (check_perm(optional ? OPT_A | OPT_B : OPT_C))
+		return 4;
+	// ok: raptor-typos
+	if (type_mask & (1u << i))
+		return 5;
+	// ok: raptor-typos
+	if (BIT(i) & type_mask)
+		return 6;
+	// ruleid: raptor-typos
+	if (a & subnet)
+		return 7;
+	return 0;
+}

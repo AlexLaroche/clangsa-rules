@@ -1,9 +1,14 @@
 // raptor.Typos: operator mistakes that change the meaning of the code.
 //   for (a == b; ...)            a == b;
-//   if (... a = b ...)           unless (a = b) is compared
+//   if (... a = b ...)           unless (a = b) is compared or in its own
+//                                parentheses (`if ((a = b))`, `!(a = b)`)
 //   if (... a & b ...)           unless (a & b) is compared  (same for |),
-//                                or b is a constant mask (`flags & FLAG`),
-//                                or it builds a call argument (`f(A | B)`)
+//                                or b is a constant mask (`flags & FLAG`)
+//                                or a shifted bit (`mask & (1u << i)`),
+//                                or (a & b) is compared on either side,
+//                                or it builds a call argument (`f(A | B)`),
+//                                or a macro's own `if` and operator test it
+//                                (`msg(M_WARN | M_ERRNO)` -> `(flags) & M_FATAL`)
 //   a =+ b                       (E op E) for &&, ||, ==, !=, <, <=, >, >=,
 //                                unless the operands are spelled differently
 //                                (`IS_ENABLED(A) || IS_ENABLED(B)`)
@@ -91,16 +96,28 @@ bool isComparedLHS(const Expr *E, ASTContext &Ctx) {
       Cur = BO;
       continue;
     }
-    return BO && BO->isComparisonOp() && BO->getLHS() == Cur;
+    // a masked value may sit on either side ((a & m) != (b & m));
+    // an assignment only on the left, as semgrep's ($E1 = $E2) CMP $_
+    return BO && BO->isComparisonOp() &&
+           (BO->getLHS() == Cur || K == BO_And || K == BO_Or);
   }
 }
 
 // `flags & MASK`: a flag test, the only meaning `&` can have against a
 // constant (`flags && MASK` would be meaningless).
+// A single bit built by a shift of a constant (`1u << i`, a BIT(i) macro).
+bool isShiftedBit(const Expr *E, const ASTContext &Ctx) {
+  const auto *Sh = dyn_cast<BinaryOperator>(E->IgnoreParenCasts());
+  return Sh && Sh->getOpcode() == BO_Shl && !Sh->isValueDependent() &&
+         Sh->getLHS()->isIntegerConstantExpr(Ctx);
+}
 bool isFlagTest(const BinaryOperator *BO, const ASTContext &Ctx) {
-  return BO->getOpcode() == BO_And && !BO->isValueDependent() &&
-         BO->getLHS()->isIntegerConstantExpr(Ctx) !=
-             BO->getRHS()->isIntegerConstantExpr(Ctx);
+  if (BO->getOpcode() != BO_And || BO->isValueDependent())
+    return false;
+  if (isShiftedBit(BO->getLHS(), Ctx) || isShiftedBit(BO->getRHS(), Ctx))
+    return true;
+  return BO->getLHS()->isIntegerConstantExpr(Ctx) !=
+         BO->getRHS()->isIntegerConstantExpr(Ctx);
 }
 // A constant `A | B` building the mask of a flag test: `flags & (A | B)`.
 bool inFlagMask(const BinaryOperator *BO, ASTContext &Ctx) {
@@ -124,24 +141,67 @@ bool inFlagMask(const BinaryOperator *BO, ASTContext &Ctx) {
     return false;
   }
 }
-// E (through parentheses and casts) is an argument of a call: it builds that
-// argument (`lookup(t, A | B)`), whatever the call's result is used for.
-bool isCallArgument(const Expr *E, ASTContext &Ctx) {
+// The node E's value flows into: up through parentheses, casts, a chain of
+// the same operator (`A | B | C`) and the branches of a ?:
+// (`opt ? A | B : C`). Returns that consumer and sets Child to the
+// expression it consumes.
+DynTypedNode consumerOf(const Expr *E, ASTContext &Ctx, const Stmt *&Child) {
   const Stmt *Cur = E;
+  const auto *BO = dyn_cast<BinaryOperator>(E);
   while (true) {
     auto Parents = Ctx.getParents(*Cur);
-    if (Parents.empty())
-      return false;
-    if (const auto *P = Parents[0].get<Expr>();
-        P && (isa<ParenExpr>(P) || isa<CastExpr>(P))) {
-      Cur = P;
-      continue;
+    if (Parents.empty()) {
+      Child = Cur;
+      return DynTypedNode();
     }
-    if (const auto *CE = Parents[0].get<CallExpr>())
-      return CE->getCallee() != Cur;
-    return false;
+    if (const auto *P = Parents[0].get<Expr>()) {
+      if (isa<ParenExpr>(P) || isa<CastExpr>(P)) {
+        Cur = P;
+        continue;
+      }
+      if (const auto *PB = dyn_cast<BinaryOperator>(P);
+          PB && BO && PB->getOpcode() == BO->getOpcode() &&
+          (BO->getOpcode() == BO_Or || BO->getOpcode() == BO_And)) {
+        Cur = P;
+        continue;
+      }
+      if (const auto *CO = dyn_cast<ConditionalOperator>(P);
+          CO && CO->getCond() != Cur) {
+        Cur = P;
+        continue;
+      }
+    }
+    Child = Cur;
+    return Parents[0];
   }
 }
+
+// E is an argument of a call: it builds that argument (`lookup(t, A | B)`),
+// whatever the call's result is used for.
+bool isCallArgument(const Expr *E, ASTContext &Ctx) {
+  const Stmt *Child = nullptr;
+  DynTypedNode N = consumerOf(E, Ctx, Child);
+  if (const auto *CE = N.get<CallExpr>())
+    return CE->getCallee() != Child;
+  return false;
+}
+// BO sits in its own parentheses: `if ((a = b))`, `!(a = b)`, the
+// conventional way to say an assignment in a condition is meant.
+bool parenthesized(const BinaryOperator *BO, ASTContext &Ctx) {
+  auto Parents = Ctx.getParents(*BO);
+  return !Parents.empty() && Parents[0].get<ParenExpr>();
+}
+
+// BO (through parentheses and casts) is an operand of an operator from a
+// macro body, in an `if` that also comes from the macro: flags handed to a
+// macro that tests them itself
+// (`msg(M_WARN | M_ERRNO, ...)` -> `if ((flags) & M_FATAL)`).
+bool operandOfMacroOperator(const BinaryOperator *BO, ASTContext &Ctx) {
+  const Stmt *Child = nullptr;
+  const auto *Outer = consumerOf(BO, Ctx, Child).get<BinaryOperator>();
+  return Outer && fromMacro(Outer, Ctx);
+}
+
 bool isCharPointer(QualType T) {
   return T->isPointerType() && T->getPointeeType()->isAnyCharacterType();
 }
@@ -168,6 +228,9 @@ class TyposChecker : public Checker<check::ASTCodeBody> {
     if (!Cond)
       return;
     bool Assign = false, BitAnd = false, BitOr = false, Copy = false;
+    // the `if` itself comes from a macro body (`msg(...)` -> `if (...)`)
+    const SourceManager &SM = Ctx.getSourceManager();
+    bool IfFromMacro = If->getIfLoc().isMacroID() && !SM.isMacroArgExpansion(If->getIfLoc());
     auto Ops = binaryOperator(hasAnyOperatorName("=", "&", "|")).bind("op");
     for (const BoundNodes &N : match(findAll(Ops), *Cond, Ctx)) {
       const auto *BO = N.getNodeAs<BinaryOperator>("op");
@@ -175,7 +238,11 @@ class TyposChecker : public Checker<check::ASTCodeBody> {
         continue;
       if (isFlagTest(BO, Ctx) || inFlagMask(BO, Ctx))
         continue;
-      if (BO->getOpcode() != BO_Assign && isCallArgument(BO, Ctx))
+      if (BO->getOpcode() != BO_Assign &&
+          (isCallArgument(BO, Ctx) ||
+           (IfFromMacro && operandOfMacroOperator(BO, Ctx))))
+        continue;
+      if (BO->getOpcode() == BO_Assign && parenthesized(BO, Ctx))
         continue;
       Assign |= BO->getOpcode() == BO_Assign;
       BitAnd |= BO->getOpcode() == BO_And;

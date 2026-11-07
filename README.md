@@ -258,7 +258,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.MissingDefaultInSwitch**](src/checkers/MissingDefaultInSwitch.cpp). Missing default case in a switch statement.
 * [**raptor.MissingBreakInSwitch**](src/checkers/MissingBreakInSwitch.cpp). Missing break or equivalent in a switch statement.
 * [**raptor.MissingReturn**](src/checkers/MissingReturn.cpp). Missing return statement in non-void function.
-* [**raptor.Typos**](src/checkers/Typos.cpp). Potential typos with security implications: `=` or a bitwise `&`/`|` in an `if` condition, `=+`, comparisons used as statements, `(E op E)`, empty `if`/`for` bodies, octal array sizes. Flag tests against a constant mask (`if (flags & (A | B))`), masks built as call arguments (`if (lookup(t, A | B))`) and operands spelled differently that expand to the same value (`IS_ENABLED(A) || IS_ENABLED(B)`) are not reported.
+* [**raptor.Typos**](src/checkers/Typos.cpp). Potential typos with security implications: `=` or a bitwise `&`/`|` in an `if` condition, `=+`, comparisons used as statements, `(E op E)`, empty `if`/`for` bodies, octal array sizes. Flag tests against a constant mask (`if (flags & (A | B))`) or a shifted bit (`mask & (1u << i)`), masked values compared on either side (`(a & m) != (b & m)`), masks built as call arguments, `|` chains and `?:` branches included (`if (lookup(t, A | B | C))`), flags handed to a macro whose own `if` tests them (OpenVPN `msg(M_WARN | M_ERRNO, ...)`), assignments in their own parentheses (`if ((p = next()))`, `!(bio = BIO_new(...))`) and operands spelled differently that expand to the same value (`IS_ENABLED(A) || IS_ENABLED(B)`) are not reported.
 
 ### Noisy
 
