@@ -35,8 +35,9 @@ bool hasTypedPointerType(const Expr *E) {
          P->isSpecificBuiltinType(BuiltinType::Double);
 }
 
-// a[i] or *a where a is an array: the element size, as in the element-count
-// idiom sizeof(a) / sizeof(a[0]), even when the elements are pointers.
+// a[i] or *a where a is an array or a pointer to pointers: the element size,
+// as in the element-count idiom sizeof(a) / sizeof(a[0]) or an allocation
+// calloc(n, sizeof(*pp)), even when the elements are pointers.
 bool isArrayElement(const Expr *E) {
   const Expr *Base = nullptr;
   if (const auto *AS = dyn_cast<ArraySubscriptExpr>(E))
@@ -44,7 +45,13 @@ bool isArrayElement(const Expr *E) {
   else if (const auto *UO = dyn_cast<UnaryOperator>(E))
     if (UO->getOpcode() == UO_Deref)
       Base = UO->getSubExpr();
-  return Base && Base->IgnoreParenImpCasts()->getType()->isArrayType();
+  if (!Base)
+    return false;
+  QualType T = Base->IgnoreParenImpCasts()->getType();
+  // an array, or a pointer to pointers (`calloc(n, sizeof(*pp))`, OpenSSH
+  // `sizeof(*key->cert->principals)`): the element is a pointer on purpose
+  return T->isArrayType() ||
+         (T->isPointerType() && T->getPointeeType()->isPointerType());
 }
 
 // $PTR declared as `$_ * $PTR` (variable or parameter) or `$_ $PTR[]`

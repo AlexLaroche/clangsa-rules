@@ -264,3 +264,16 @@ int pointer_as_data(char *handle, struct param *in)
 	memcpy(in->data, handle, sizeof(handle));
 	return 0;
 }
+
+// The element size of an array of strings reached through a pointer:
+// `*pp` and `pp[0]` are char * on purpose (OpenSSH
+// `calloc(n, sizeof(*key->cert->principals))`).
+char **copy_names(char **names, size_t n)
+{
+	// ok: raptor-incorrect-use-of-sizeof
+	char **out = calloc(n, sizeof(*names));
+	// ok: raptor-incorrect-use-of-sizeof
+	char **more = calloc(n, sizeof(names[0]));
+	free(more);
+	return out;
+}
