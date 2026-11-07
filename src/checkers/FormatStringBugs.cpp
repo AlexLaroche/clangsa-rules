@@ -1,10 +1,13 @@
 // raptor.FormatStringBugs: printf/scanf/syslog/err-like calls
 // whose format argument is not a string literal (nor a gettext() family
-// call returning a translated literal).
+// call returning a translated literal, nor a const char array initialized
+// with one, nor the format parameter of a wrapper with a format attribute,
+// whose callers' formats the compiler checks).
 #include "BufHelpers.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "llvm/ADT/StringMap.h"
+#include "clang/AST/Attr.h"
 
 using namespace clang;
 using namespace ento;
@@ -44,6 +47,11 @@ const llvm::StringMap<unsigned> &formatFunctions() {
 bool isConstantStringVar(const Expr *E, const Stmt *Body) {
   const auto *DRE = dyn_cast<DeclRefExpr>(E);
   const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  // `static const char usage[] = "...";`: a constant array, at any scope
+  if (VD && VD->getType()->isArrayType() &&
+      VD->getType()->getAsArrayTypeUnsafe()->getElementType().isConstQualified() &&
+      VD->getInit() && isa<StringLiteral>(ign(VD->getInit())))
+    return true;
   if (!VD || !VD->isLocalVarDecl() || !VD->getInit() ||
       !isa<StringLiteral>(ign(VD->getInit())))
     return false;
@@ -70,6 +78,17 @@ bool isSafeFormat(const Expr *E, const Stmt *Body) {
   return isConstantStringVar(E, Body);
 }
 
+// E is a parameter of D, and D carries a format attribute
+// (`__attribute__((format(printf, 2, 3)))`): a wrapper forwarding its
+// caller's format, which the compiler checks at every call site. An
+// unannotated wrapper (`log_error(char *fmt, ...)`) is still reported.
+bool isWrapperFormat(const Expr *E, const Decl *D) {
+  const auto *DRE = dyn_cast<DeclRefExpr>(ign(E));
+  const auto *FD = dyn_cast<FunctionDecl>(D);
+  return DRE && isa<ParmVarDecl>(DRE->getDecl()) && FD &&
+         FD->hasAttr<FormatAttr>();
+}
+
 class FormatStringBugsChecker : public Checker<check::ASTCodeBody> {
 public:
   void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr,
@@ -78,7 +97,8 @@ public:
     forEach<CallExpr>(D->getBody(), [&](const CallExpr *CE) {
       auto It = Funcs.find(raptor::calleeName(CE));
       if (It == Funcs.end() || CE->getNumArgs() <= It->second ||
-          isSafeFormat(CE->getArg(It->second), D->getBody()))
+          isSafeFormat(CE->getArg(It->second), D->getBody()) ||
+          isWrapperFormat(CE->getArg(It->second), D))
         return;
       raptor::reportAt(
           BR, this, "Format string bug",

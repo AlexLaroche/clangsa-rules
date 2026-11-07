@@ -209,7 +209,7 @@ One checker per rule of the semgrep C/C++ ruleset.
 
 #### format strings
 
-* [**raptor.FormatStringBugs**](src/checkers/FormatStringBugs.cpp). Potential format string bugs.
+* [**raptor.FormatStringBugs**](src/checkers/FormatStringBugs.cpp). Potential format string bugs. A `const char` array initialized with a literal (`static const char usage[] = "..."`) and the format parameter of a wrapper with a `format(printf, ...)` attribute, whose callers' formats the compiler checks, are not reported; unannotated wrappers still are.
 
 #### memory management
 

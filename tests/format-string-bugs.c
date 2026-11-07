@@ -125,3 +125,40 @@ void fmt_conditional(int mr, int len, char *user)
 	// ruleid: raptor-format-string-bugs
 	printf(mr ? user : "%d", len);
 }
+
+// printf-like wrappers with a format attribute forward their own format
+// parameter, and the compiler checks the callers' formats (OpenVPN
+// buf_printf(), status_printf()).
+int log_vformat(char *out, size_t n, const char *format, va_list ap)
+	__attribute__((format(printf, 3, 0)));
+int log_vformat(char *out, size_t n, const char *format, va_list ap)
+{
+	// ok: raptor-format-string-bugs
+	return vsnprintf(out, n, format, ap);
+}
+int log_format(char *out, size_t n, const char *format, ...)
+	__attribute__((format(printf, 3, 4)));
+int log_format(char *out, size_t n, const char *format, ...)
+{
+	va_list ap;
+	int r;
+	va_start(ap, format);
+	// ok: raptor-format-string-bugs
+	r = vsnprintf(out, n, format, ap);
+	va_end(ap);
+	return r;
+}
+// A constant array initialized with a literal is a constant format
+// (OpenVPN `static const char usage_message[] = "..."`).
+static const char usage_text[] = "usage: %s [options]\n";
+void print_usage(const char *name)
+{
+	// ok: raptor-format-string-bugs
+	printf(usage_text, name);
+}
+// A non-wrapper taking a format from its caller is still reported.
+void print_label(const char *label)
+{
+	// ruleid: raptor-format-string-bugs
+	printf(label);
+}
