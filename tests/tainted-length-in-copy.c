@@ -226,3 +226,31 @@ void two_fields(const unsigned char *p, const unsigned char *end,
 	// ruleid: raptor-tainted-length-in-copy
 	memcpy(d, p + off, len);
 }
+
+// The bound written on the pointer: `cp + n > end` (OpenSSH
+// getrrsetbyname's `NEED(curr->size)`: `if (*cp + need > answer + size)
+// goto fail;`), the same check as `n > end - cp`.
+#define NEED(need) do { if (*cp + (need) > answer + size) goto fail; } while (0)
+int parse_rdata(unsigned char *out, const unsigned char **cp,
+		const unsigned char *answer, int size)
+{
+	unsigned int n;
+	NEED(2);
+	n = ((*cp)[0] << 8) | (*cp)[1];
+	*cp += 2;
+	NEED(n);
+	// ok: raptor-tainted-length-in-copy
+	memcpy(out, *cp, n);
+	return 0;
+fail:
+	return -1;
+}
+
+int parse_rdata_unchecked(unsigned char *out, const unsigned char **cp)
+{
+	unsigned int n = ((*cp)[0] << 8) | (*cp)[1];
+	*cp += 2;
+	// ruleid: raptor-tainted-length-in-copy
+	memcpy(out, *cp, n);
+	return 0;
+}

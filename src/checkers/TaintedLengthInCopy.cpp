@@ -12,7 +12,8 @@
 // Values computed from a source stay tainted. Sanitizer: the value takes
 // part in a <, <=, > or >= comparison (a comparison of the length alone
 // with 0 or 1 is only a lower bound), or in == / != with a non-constant
-// value, which marks it checked on the paths that follow. A comparison of a
+// value, which marks it checked on the paths that follow; so does a pointer
+// it was added to, compared with an end (`if (cp + n > end) goto fail;`). A comparison of a
 // sum of two unchecked decoded values (offset + len > size) does not count,
 // because the sum can wrap around (a value combined with itself, `n + (n &
 // 1)`, is not such a sum). Sink: the size argument of memcpy() and
@@ -169,8 +170,18 @@ class TaintedLengthInCopyChecker
 
   static ProgramStateRef markChecked(ProgramStateRef State, SVal V) {
     SymbolRef Sym = V.getAsSymbol(/*IncludeBaseRegions=*/false);
-    if (!Sym)
+    if (!Sym) {
+      // A pointer compared with an end (`cp + n > end`): its element
+      // indices carry the offsets added to it (OpenSSH NEED(n)).
+      for (const MemRegion *R = V.getAsRegion(); R;) {
+        const auto *ER = dyn_cast<ElementRegion>(R);
+        if (!ER)
+          break;
+        State = markChecked(State, ER->getIndex());
+        R = ER->getSuperRegion();
+      }
       return State;
+    }
     for (SymbolRef S : Sym->symbols())
       if (State->get<RaptorDecodedLen>(S))
         State = State->add<RaptorCheckedLen>(S);
