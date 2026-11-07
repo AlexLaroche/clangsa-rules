@@ -614,3 +614,30 @@ int main()
 	printf("Hello, World!");
 	return 0;
 }
+
+// The out-parameter is set under a test of the parameter itself, which the
+// caller's &p always passes (OpenSSH host_key_revoked_in_hostfiles():
+// get_hostfile_hostname_ipaddr(..., &host, NULL) in a loop that frees host).
+char *dup_name(const char *s);
+static void fill_name(const char *name, char **out_name, char **out_addr)
+{
+	if (out_addr != NULL)
+		*out_addr = dup_name("addr");
+	if (out_name != NULL) {
+		if (name[0] == '@')
+			*out_name = dup_name(name + 1);
+		else
+			*out_name = dup_name(name);
+	}
+}
+void refill_in_loop(const char *name, int tries)
+{
+	char *host = NULL;
+	for (;;) {
+		fill_name(name, &host, NULL);
+		// ok: raptor-double-free
+		free(host);
+		if (--tries <= 0)
+			break;
+	}
+}

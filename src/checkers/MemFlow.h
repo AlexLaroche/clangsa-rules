@@ -301,7 +301,8 @@ inline std::string releaseSite(const std::string &K,
 // before every return? Statement by statement at the top of its body: a
 // direct `*P = ...` / `P[0] = ...`, or P forwarded to a callee that must set
 // it, sets it; a statement that can return first does not (a null test of P
-// itself is not counted: the caller passed `&p`). Unknown bodies are
+// itself is not counted: the caller passed `&p`, so the branch of
+// `if (P != NULL)` is taken and a set there counts). Unknown bodies are
 // assumed to set it.
 inline bool mustSet(const clang::FunctionDecl *FD, unsigned Idx, int Depth) {
   using namespace clang;
@@ -371,6 +372,22 @@ inline bool mustSet(const clang::FunctionDecl *FD, unsigned Idx, int Depth) {
     if (const auto *If = dyn_cast<IfStmt>(S)) {
       if (sets(If->getCond()))
         return true;
+      // `if (p != NULL) *p = ...` / `if (p) ...`: taken whenever the
+      // caller passes &x, so a set in that branch is a set.
+      {
+        const Expr *C = If->getCond()->IgnoreParenImpCasts();
+        bool NonNull = isP(C);
+        if (const auto *BO = dyn_cast<BinaryOperator>(C);
+            BO && BO->getOpcode() == BO_NE)
+          NonNull = (isP(BO->getLHS()) &&
+                     BO->getRHS()->isNullPointerConstant(
+                         Def->getASTContext(), Expr::NPC_ValueDependentIsNotNull)) ||
+                    (isP(BO->getRHS()) &&
+                     BO->getLHS()->isNullPointerConstant(
+                         Def->getASTContext(), Expr::NPC_ValueDependentIsNotNull));
+        if (NonNull && sets(If->getThen()))
+          return true;
+      }
       bool Deref = false;
       if (tests(If->getCond(), Deref) && !Deref)
         continue;
