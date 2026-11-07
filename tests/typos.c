@@ -506,3 +506,37 @@ int typos_more_flag_idioms(unsigned a, unsigned b, unsigned subnet, unsigned fla
 		return 7;
 	return 0;
 }
+
+// OpenSSH idioms: a scan loop whose `;` sits on its own line, an empty if
+// body marked by a comment, a literal sign, the same call made twice on
+// purpose, a mask built inside a compared &, and an assignment handed to a
+// call.
+int skip_field(const char **p);
+int lookup_uid(int uid);
+int getid(void);
+int typos_openssh_idioms(const char *line, const char *place, unsigned revents,
+			 unsigned mask, int n)
+{
+	const char *cp;
+	int r, sign, uid, i;
+	// ok: raptor-typos
+	for (cp = line; *cp == ' ' || *cp == '\t'; cp++)
+		;
+	// ruleid: raptor-typos
+	for (i = 0; i < n; i++);
+	// ok: raptor-typos
+	if (*place)			/* no space */
+		/* NOTHING */;
+	// ok: raptor-typos
+	sign = +1;
+	// ok: raptor-typos
+	if ((r = skip_field(&cp)) != 0 || (r = skip_field(&cp)) != 0)
+		return r;
+	// ok: raptor-typos
+	if ((revents & (mask | 0x10 | 0x8)) != 0)
+		return 1;
+	// ok: raptor-typos
+	if (lookup_uid(uid = getid()) == 0)
+		return 2;
+	return sign + i;
+}

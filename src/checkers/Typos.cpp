@@ -14,6 +14,9 @@
 //                                (`IS_ENABLED(A) || IS_ENABLED(B)`)
 //   (char *)p = / == / != '\0'   if (... strcpy()/strncpy() ...)
 //   if (x);   for (a; b; c);     char buf[040];  (octal array size)
+//   (not `for (...)` with its `;` on a line of its own, an empty if body
+//   announced by a comment, `sign = +1`, nor identical operands that call
+//   something: `(r = skip(b)) != 0 || (r = skip(b)) != 0`)
 // Operators coming from macro bodies are skipped: semgrep sees the macro
 // call, not its body (e.g. `if (SSL_in_init(s))` expands to a bitwise &).
 #include "Common.h"
@@ -202,6 +205,19 @@ bool operandOfMacroOperator(const BinaryOperator *BO, ASTContext &Ctx) {
   return Outer && fromMacro(Outer, Ctx);
 }
 
+bool sameLine(SourceLocation A, SourceLocation B, const ASTContext &Ctx) {
+  const SourceManager &SM = Ctx.getSourceManager();
+  return SM.getExpansionLineNumber(A) == SM.getExpansionLineNumber(B);
+}
+// A comment between A and B (`if (*place) /* NOTHING */;`): the empty body
+// is announced.
+bool commentBetween(SourceLocation A, SourceLocation B, const ASTContext &Ctx) {
+  const SourceManager &SM = Ctx.getSourceManager();
+  StringRef T = Lexer::getSourceText(
+      CharSourceRange::getCharRange(SM.getExpansionLoc(A), SM.getExpansionLoc(B)), SM,
+      Ctx.getLangOpts());
+  return T.contains("/*") || T.contains("//");
+}
 bool isCharPointer(QualType T) {
   return T->isPointerType() && T->getPointeeType()->isAnyCharacterType();
 }
@@ -238,10 +254,18 @@ class TyposChecker : public Checker<check::ASTCodeBody> {
         continue;
       if (isFlagTest(BO, Ctx) || inFlagMask(BO, Ctx))
         continue;
-      if (BO->getOpcode() != BO_Assign &&
-          (isCallArgument(BO, Ctx) ||
-           (IfFromMacro && operandOfMacroOperator(BO, Ctx))))
+      if (isCallArgument(BO, Ctx))
         continue;
+      if (BO->getOpcode() != BO_Assign && IfFromMacro && operandOfMacroOperator(BO, Ctx))
+        continue;
+      // `(revents & (mask | POLLHUP)) != 0`: the mask of a compared test
+      if (BO->getOpcode() == BO_Or) {
+        const Stmt *Child = nullptr;
+        if (const auto *And = consumerOf(BO, Ctx, Child).get<BinaryOperator>();
+            And && And->getOpcode() == BO_And &&
+            (isComparedLHS(And, Ctx) || isFlagTest(And, Ctx)))
+          continue;
+      }
       if (BO->getOpcode() == BO_Assign && parenthesized(BO, Ctx))
         continue;
       Assign |= BO->getOpcode() == BO_Assign;
@@ -256,7 +280,8 @@ class TyposChecker : public Checker<check::ASTCodeBody> {
       report(If, "Bitwise operator in an if condition, instead of a logical one");
     if (Copy)
       report(If, "String copy function in an if condition");
-    if (isa<NullStmt>(If->getThen()) && !If->getThen()->getBeginLoc().isMacroID())
+    if (isa<NullStmt>(If->getThen()) && !If->getThen()->getBeginLoc().isMacroID() &&
+        !commentBetween(If->getRParenLoc(), If->getThen()->getBeginLoc(), Ctx))
       report(If, "Empty body after if");
   }
 
@@ -277,8 +302,11 @@ public:
       if (const auto *BO = dyn_cast_or_null<BinaryOperator>(For->getInit()))
         if (BO->getOpcode() == BO_EQ && !fromMacro(BO, Ctx))
           report(For, "Comparison in the initialization of a for loop");
+      // `for (...);` on one line; a `;` on a line of its own is the
+      // deliberate empty body of a scan loop (`for (cp = s; *cp == ' '; cp++)`)
       if (For->getInit() && For->getCond() && For->getInc() &&
-          isa<NullStmt>(For->getBody()) && !For->getBody()->getBeginLoc().isMacroID())
+          isa<NullStmt>(For->getBody()) && !For->getBody()->getBeginLoc().isMacroID() &&
+          sameLine(For->getRParenLoc(), For->getBody()->getBeginLoc(), Ctx))
         report(For, "Empty body after for");
     }
 
@@ -313,10 +341,15 @@ public:
       BinaryOperatorKind K = BO->getOpcode();
       if (K == BO_Assign) {
         if (const auto *UO = dyn_cast<UnaryOperator>(BO->getRHS()->IgnoreParenImpCasts()))
-          if (UO->getOpcode() == UO_Plus)
+          // `sign = +1`: a literal written with its sign
+          if (UO->getOpcode() == UO_Plus &&
+              !isa<IntegerLiteral, FloatingLiteral>(UO->getSubExpr()->IgnoreParenImpCasts()))
             report(BO, "Assignment of a unary plus (=+), instead of +=");
       }
+      // the same call twice (`(r = skip(b)) != 0 || (r = skip(b)) != 0`)
+      // does its work twice on purpose
       if ((BO->isLogicalOp() || BO->isComparisonOp()) &&
+          !BO->getLHS()->HasSideEffects(Ctx) &&
           sameExpr(BO->getLHS(), BO->getRHS(), Ctx))
         report(BO, "Both operands of the operator are identical");
       if ((K == BO_Assign || K == BO_EQ || K == BO_NE) &&
