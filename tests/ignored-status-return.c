@@ -258,3 +258,171 @@ void cleanup(State *s) {
   // ok: raptor-ignored-status-return
   checksum_final(s);
 }
+
+// A status kept in a variable (`err = CONST; ... return err;`) whose early
+// failure exit skips filling the caller's buffer, and the only caller hands
+// it an uninitialised local and ignores the status, then reads the buffer.
+// microsoft/SymCrypt lib/tlsCbcVerify.c: SymCryptTlsCbcHmacVerifyCore
+// returns SYMCRYPT_BUFFER_TOO_SMALL before wiping abMacValue, and
+// SymCryptTlsCbcHmacVerify compares the uninitialised bytes (CWE-252 -> 457).
+#define ERR_NONE 0
+#define ERR_TOO_SMALL 0x8001
+static int verify_core(const unsigned char *data, size_t len, unsigned char *mac,
+                       unsigned *pad_err) {
+  int err = ERR_NONE;
+  unsigned bad = 0;
+  if (len < 33) {
+    err = ERR_TOO_SMALL;
+    goto cleanup;
+  }
+  for (size_t i = 0; i < 32; i++)
+    mac[i] = data[len - 33 + i];
+  bad = data[len - 1] > len - 33;
+cleanup:
+  *pad_err = bad;
+  return err;
+}
+int tls_cbc_verify(const unsigned char *data, size_t len, const unsigned char *expect) {
+  unsigned char mac[32];
+  unsigned pad_err;
+  // ruleid: raptor-ignored-status-return
+  verify_core(data, len, mac, &pad_err);
+  for (int i = 0; i < 32; i++)
+    pad_err |= mac[i] ^ expect[i];
+  return pad_err == 0 ? 0 : -1;
+}
+
+// The same status-variable shape filling a struct through &local.
+typedef struct { unsigned type, len; } Header;
+static int parse_header(const unsigned char *p, size_t n, Header *h) {
+  int rc = -1;
+  if (n < 4)
+    return rc;
+  h->type = p[0];
+  h->len = p[1] << 8 | p[2];
+  rc = 0;
+  return rc;
+}
+unsigned header_len(const unsigned char *p, size_t n) {
+  Header h;
+  // ruleid: raptor-ignored-status-return
+  parse_header(p, n, &h);
+  return h.len;
+}
+
+// ok: the buffer is initialised before the call, so ignoring the status
+// cannot expose uninitialised memory.
+unsigned header_len_default(const unsigned char *p, size_t n) {
+  Header h = {0, 0};
+  // ok: raptor-ignored-status-return
+  parse_header(p, n, &h);
+  return h.len;
+}
+
+// ok: the uninitialised local is not passed to the callee.
+static int touch(const unsigned char *p, size_t n) {
+  int rc = 0;
+  if (n == 0)
+    rc = -1;
+  return rc;
+}
+unsigned first(const unsigned char *p, size_t n) {
+  unsigned v;
+  // ok: raptor-ignored-status-return
+  touch(p, n);
+  v = n ? p[0] : 0;
+  return v;
+}
+
+// ok: the returned variable is not a status (a computed length).
+static int fill_count(const unsigned char *p, size_t n, unsigned char *out) {
+  int count = 0;
+  for (size_t i = 0; i < n; i++)
+    if (p[i])
+      out[count++] = p[i];
+  return count;
+}
+void copy_nonzero(const unsigned char *p, size_t n) {
+  unsigned char tmp[64];
+  // ok: raptor-ignored-status-return
+  fill_count(p, n < 64 ? n : 64, tmp);
+}
+
+// ok: with these constant arguments the callee cannot fail: its failure
+// returns are guarded by tests on parameters that the constants make false
+// (SymCrypt SymCryptChaCha20Selftest / SymCryptRc4Selftest).
+static const unsigned char test_key[32] = {1};
+static int stream_init(unsigned char *st, const unsigned char *key, size_t cb_key,
+                       size_t cb_nonce) {
+  int err = ERR_NONE;
+  if (cb_key != 32) {
+    err = ERR_TOO_SMALL;
+    goto out;
+  }
+  if (cb_nonce != 12) {
+    err = -2;
+    goto out;
+  }
+  st[0] = key[0];
+out:
+  return err;
+}
+int stream_selftest(void) {
+  unsigned char st[16];
+  // ok: raptor-ignored-status-return
+  stream_init(st, test_key, sizeof(test_key), 12);
+  return st[0];
+}
+// A constant that does trip a guard is still reported.
+int stream_selftest_bad(void) {
+  unsigned char st[16];
+  // ruleid: raptor-ignored-status-return
+  stream_init(st, test_key, 16, 12);
+  return st[0];
+}
+// The non-constant case is reported as before.
+int stream_use(const unsigned char *key, size_t n) {
+  unsigned char st[16];
+  // ruleid: raptor-ignored-status-return
+  stream_init(st, key, n, 12);
+  return st[0];
+}
+
+// ok: a function that only ever returns one value cannot fail, even if
+// another caller checks it defensively (SymCrypt SymCryptKmac128ExpandKeyEx).
+#define OK_STATUS 0
+static int expand_key(unsigned char *k, const unsigned char *key) {
+  k[0] = key[0];
+  return OK_STATUS;
+}
+int derive(unsigned char *k, const unsigned char *key) {
+  if (expand_key(k, key) != OK_STATUS)
+    return -1;
+  return 0;
+}
+void kmac_selftest(void) {
+  unsigned char k[8];
+  // ok: raptor-ignored-status-return
+  expand_key(k, test_key);
+}
+
+// Known false positive: the caller has already rejected the values that make
+// the callee fail (SymCrypt SymCryptXmsskeySetValue validates keyType before
+// SymCryptXmssSizeofKeyBlobFromParams, whose `default:` returns an error).
+static int blob_size(int type, size_t *cb) {
+  int err = ERR_NONE;
+  switch (type) {
+  case 1: *cb = 64; break;
+  case 2: *cb = 128; break;
+  default: err = -1; break;
+  }
+  return err;
+}
+int set_value(const unsigned char *in, size_t n, int type) {
+  size_t cb;
+  if (type != 1 && type != 2)
+    return -1;
+  // todook: raptor-ignored-status-return
+  blob_size(type, &cb);
+  return n == cb ? in[0] : -1;
+}

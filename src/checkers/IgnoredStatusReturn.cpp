@@ -18,9 +18,17 @@
 //
 // Either way, the file must check the result at least once and at least as
 // often as it discards it: a status that is discarded at most call sites
-// (debug printers, consume-after-peek helpers) is not reported.
+// (debug printers, consume-after-peek helpers) is not reported. Except when
+// the call is what initialises the caller's buffer: a status function given
+// a local of the caller that has no initialiser and is not used before the
+// call (`BYTE mac[32]; core(data, len, mac); ... mac[i] ^ expect[i]`), where
+// ignoring a failure reads uninitialised memory (CWE-457) even if no other
+// call site exists (microsoft/SymCrypt SymCryptTlsCbcHmacVerify).
 //
-// Not reported: teardown functions (close, cleanup, destroy, free, final,
+// Not reported: calls that cannot fail, because the callee only ever returns
+// one value, or its failure values sit under `if`s that the call's constant
+// arguments rule out (`if (cbKey != 32) err = WRONG_KEY_SIZE;` called with a
+// 32-byte test key in a self-test); teardown functions (close, cleanup, destroy, free, final,
 // exit, shutdown...), and cleanup on a path that is already failing, where
 // the next statement is a break, a goto, or a return of a variable or a
 // negative constant
@@ -47,6 +55,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallSet.h"
 #include <functional>
+#include <optional>
 
 using namespace clang;
 using namespace ento;
@@ -70,6 +79,56 @@ bool isStatusFunction(const FunctionDecl *FD, ASTContext &Ctx, StatusCache &Cach
 const FunctionDecl *calledFunction(const Expr *E) {
   const auto *CE = dyn_cast_or_null<CallExpr>(raptor::strip(E));
   return CE ? CE->getDirectCallee() : nullptr;
+}
+
+// `return err;` where err is a local of Def that only ever holds constants
+// or results of status functions (`int err = OK; ... err = TOO_SMALL; goto
+// out; ... out: return err;`): adds those constants to Constants.
+const VarDecl *statusVariable(const Expr *V, const FunctionDecl *Def, ASTContext &Ctx,
+                              StatusCache &Cache, llvm::SmallSet<int64_t, 4> &Constants) {
+  const auto *DRE = dyn_cast<DeclRefExpr>(raptor::strip(V));
+  const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  if (!VD || !VD->hasLocalStorage() || isa<ParmVarDecl>(VD) ||
+      !VD->getType()->isIntegralOrEnumerationType())
+    return nullptr;
+  llvm::SmallVector<const Expr *, 8> Values;
+  if (VD->getInit())
+    Values.push_back(VD->getInit());
+  bool Ok = true;
+  std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
+    if (!S || !Ok)
+      return;
+    if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
+      const auto *L = dyn_cast<DeclRefExpr>(raptor::strip(BO->getLHS()));
+      if (L && L->getDecl() == VD && BO->isAssignmentOp()) {
+        if (BO->getOpcode() != BO_Assign) {
+          Ok = false; // err |= ..., err += ...: not a status
+          return;
+        }
+        Values.push_back(BO->getRHS());
+      }
+    }
+    if (const auto *UO = dyn_cast<UnaryOperator>(S)) {
+      const auto *Sub = dyn_cast<DeclRefExpr>(raptor::strip(UO->getSubExpr()));
+      if (Sub && Sub->getDecl() == VD && (UO->isIncrementDecrementOp() || UO->getOpcode() == UO_AddrOf)) {
+        Ok = false;
+        return;
+      }
+    }
+    for (const Stmt *C : S->children())
+      Walk(C);
+  };
+  Walk(Def->getBody());
+  if (!Ok || Values.empty())
+    return nullptr;
+  for (const Expr *E : Values) {
+    Expr::EvalResult ER;
+    if (!E->isValueDependent() && E->EvaluateAsInt(ER, Ctx))
+      Constants.insert(ER.Val.getInt().getExtValue());
+    else if (!isStatusFunction(calledFunction(E), Ctx, Cache))
+      return nullptr;
+  }
+  return VD;
 }
 
 bool isStatusFunction(const FunctionDecl *FD, ASTContext &Ctx, StatusCache &Cache) {
@@ -101,6 +160,8 @@ bool isStatusFunction(const FunctionDecl *FD, ASTContext &Ctx, StatusCache &Cach
       Forwards = true;
       continue;
     }
+    if (statusVariable(V, Def, Ctx, Cache, Constants))
+      continue;
     Ok = false;
     break;
   }
@@ -279,11 +340,171 @@ public:
   }
 };
 
+// Value of E inside Def when called by CE: constants, Def's parameters bound
+// to constant arguments of CE, and arithmetic/comparisons of those.
+std::optional<int64_t> evalAt(const Expr *E, const CallExpr *CE, const FunctionDecl *Def,
+                              ASTContext &Ctx) {
+  E = E->IgnoreParenCasts();
+  Expr::EvalResult ER;
+  if (!E->isValueDependent() && E->EvaluateAsInt(ER, Ctx))
+    return ER.Val.getInt().getExtValue();
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    const auto *P = dyn_cast<ParmVarDecl>(DRE->getDecl());
+    if (!P || P->getDeclContext() != Def)
+      return std::nullopt;
+    unsigned I = P->getFunctionScopeIndex();
+    const Expr *A = I < CE->getNumArgs() ? CE->getArg(I) : nullptr;
+    if (A && !A->isValueDependent() && A->EvaluateAsInt(ER, Ctx))
+      return ER.Val.getInt().getExtValue();
+    return std::nullopt;
+  }
+  if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+    auto V = evalAt(UO->getSubExpr(), CE, Def, Ctx);
+    if (!V)
+      return std::nullopt;
+    switch (UO->getOpcode()) {
+    case UO_LNot: return !*V;
+    case UO_Minus: return -*V;
+    case UO_Not: return ~*V;
+    default: return std::nullopt;
+    }
+  }
+  const auto *BO = dyn_cast<BinaryOperator>(E);
+  if (!BO)
+    return std::nullopt;
+  auto L = evalAt(BO->getLHS(), CE, Def, Ctx);
+  if (BO->getOpcode() == BO_LAnd && L && !*L)
+    return 0;
+  if (BO->getOpcode() == BO_LOr && L && *L)
+    return 1;
+  auto R = evalAt(BO->getRHS(), CE, Def, Ctx);
+  if (!L || !R)
+    return std::nullopt;
+  bool U = BO->getLHS()->getType()->isUnsignedIntegerOrEnumerationType() ||
+           BO->getRHS()->getType()->isUnsignedIntegerOrEnumerationType();
+  uint64_t UL = *L, UR = *R;
+  switch (BO->getOpcode()) {
+  case BO_EQ: return *L == *R;
+  case BO_NE: return *L != *R;
+  case BO_LT: return U ? UL < UR : *L < *R;
+  case BO_GT: return U ? UL > UR : *L > *R;
+  case BO_LE: return U ? UL <= UR : *L <= *R;
+  case BO_GE: return U ? UL >= UR : *L >= *R;
+  case BO_LAnd: return *L && *R;
+  case BO_LOr: return *L || *R;
+  case BO_Add: return *L + *R;
+  case BO_Sub: return *L - *R;
+  case BO_Mul: return *L * *R;
+  case BO_And: return *L & *R;
+  case BO_Or: return *L | *R;
+  case BO_Xor: return *L ^ *R;
+  default: return std::nullopt;
+  }
+}
+
+// Can the call CE to Def return more than one status value? Collects the
+// values Def can return (constants returned directly or held by a returned
+// status variable); a value under an `if` whose condition, with CE's constant
+// arguments, sends control the other way is not reachable from this call.
+// `return OK;` everywhere (SymCryptKmac128ExpandKeyEx), or `if (cbKey != 32)
+// err = WRONG_KEY_SIZE;` called with a 32-byte key, cannot fail.
+bool canFailAt(const CallExpr *CE, const FunctionDecl *Def, ASTContext &Ctx) {
+  llvm::SmallVector<const ReturnStmt *, 8> Returns;
+  collectReturns(Def->getBody(), Returns);
+  llvm::SmallVector<const Stmt *, 16> Points; // expression, or VarDecl init
+  for (const ReturnStmt *R : Returns) {
+    const Expr *V = R->getRetValue();
+    if (!V)
+      return true;
+    const auto *DRE = dyn_cast<DeclRefExpr>(raptor::strip(V));
+    const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (!VD || !VD->hasLocalStorage() || isa<ParmVarDecl>(VD)) {
+      Points.push_back(V);
+      continue;
+    }
+    if (VD->getInit())
+      Points.push_back(VD->getInit());
+    std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
+      if (!S)
+        return;
+      if (const auto *BO = dyn_cast<BinaryOperator>(S))
+        if (const auto *L = dyn_cast<DeclRefExpr>(raptor::strip(BO->getLHS())))
+          if (L->getDecl() == VD && BO->isAssignmentOp())
+            Points.push_back(BO);
+      for (const Stmt *C : S->children())
+        Walk(C);
+    };
+    Walk(Def->getBody());
+  }
+  ParentMap PM(Def->getBody());
+  llvm::SmallSet<int64_t, 4> Values;
+  for (const Stmt *P : Points) {
+    const Expr *V = nullptr;
+    if (const auto *BO = dyn_cast<BinaryOperator>(P)) {
+      if (BO->getOpcode() != BO_Assign)
+        return true;
+      V = BO->getRHS();
+    } else {
+      V = cast<Expr>(P);
+    }
+    // Unreachable from this call?
+    bool Dead = false;
+    const Stmt *Child = P;
+    for (const Stmt *Up = PM.getParent(Child); Up && !Dead; Child = Up, Up = PM.getParent(Up))
+      if (const auto *If = dyn_cast<IfStmt>(Up))
+        if (Child == If->getThen() || Child == If->getElse())
+          if (auto C = evalAt(If->getCond(), CE, Def, Ctx))
+            Dead = (Child == If->getThen()) != (*C != 0);
+    if (Dead)
+      continue;
+    Expr::EvalResult ER;
+    if (V->isValueDependent() || !V->EvaluateAsInt(ER, Ctx))
+      return true;
+    Values.insert(ER.Val.getInt().getExtValue());
+  }
+  return Values.size() > 1;
+}
+
 struct Site {
   const CallExpr *CE;
   const FunctionDecl *In;
   bool Discarded, Checked, Excused;
+  const VarDecl *UninitOut; // caller's uninitialised local the callee fills
 };
+
+// A local of the caller, without initialiser and not mentioned before the
+// call, passed to it as `buf` (array) or `&x`: the call is what initialises
+// it, so ignoring its failure leaves the caller reading uninitialised memory.
+const VarDecl *uninitOutArg(const CallExpr *CE, const FunctionDecl *Caller, const SourceManager &SM) {
+  for (const Expr *A : CE->arguments()) {
+    const Expr *E = A->IgnoreParenImpCasts();
+    if (const auto *UO = dyn_cast<UnaryOperator>(E))
+      E = UO->getOpcode() == UO_AddrOf ? UO->getSubExpr()->IgnoreParenImpCasts() : nullptr;
+    else if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+      E = DRE->getType()->isArrayType() ? E : nullptr;
+    else
+      E = nullptr;
+    const auto *DRE = dyn_cast_or_null<DeclRefExpr>(E);
+    const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (!VD || !VD->hasLocalStorage() || isa<ParmVarDecl>(VD) || VD->hasInit())
+      continue;
+    bool UsedBefore = false;
+    std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
+      if (!S || UsedBefore)
+        return;
+      if (const auto *R = dyn_cast<DeclRefExpr>(S))
+        if (R->getDecl() == VD && R != DRE &&
+            SM.isBeforeInTranslationUnit(R->getBeginLoc(), CE->getBeginLoc()))
+          UsedBefore = true;
+      for (const Stmt *C : S->children())
+        Walk(C);
+    };
+    Walk(Caller->getBody());
+    if (!UsedBefore)
+      return VD;
+  }
+  return nullptr;
+}
 
 class IgnoredStatusReturnChecker : public Checker<check::EndOfTranslationUnit> {
 public:
@@ -315,7 +536,8 @@ public:
           continue;
         bool Disc = isDiscarded(CE, PM);
         Sites[Def->getCanonicalDecl()].push_back(
-            {CE, FD, Disc, isChecked(CE, PM, CondVars), Disc && onErrorPath(CE, PM, Ctx)});
+            {CE, FD, Disc, isChecked(CE, PM, CondVars), Disc && onErrorPath(CE, PM, Ctx),
+             Disc ? uninitOutArg(CE, FD, SM) : nullptr});
       }
     }
 
@@ -328,9 +550,9 @@ public:
       }
       // Where the file discards a result more often than it checks it
       // (debug printers, consume-after-peek helpers), discarding is the
-      // norm: nothing to report.
-      if (Checked == 0 || Checked < Discarded)
-        continue;
+      // norm: nothing to report, unless the call is what initialises the
+      // caller's buffer (below).
+      bool Norm = Checked == 0 || Checked < Discarded;
       const FunctionDecl *Def = nullptr;
       Callee->hasBody(Def);
       bool Status = isStatusFunction(Def, Ctx, Cache);
@@ -340,12 +562,17 @@ public:
         // Checked at most of the other call sites, and at least one.
         unsigned Others = List.size() - 1;
         bool Deviant = 2 * Checked >= Others;
-        if (!Status && !Deviant)
+        bool Uninit = Status && S.UninitOut;
+        if (!Uninit && (Norm || (!Status && !Deviant)))
+          continue;
+        if (!canFailAt(S.CE, Def, Ctx))
           continue;
         std::string Why =
-            Status ? "which signals success or failure"
-                   : "which its other callers check (" + std::to_string(Checked) + " of " +
-                         std::to_string(Others) + " call sites)";
+            Uninit ? "which signals success or failure and is the only initialisation of '" +
+                         S.UninitOut->getNameAsString() + "'"
+            : Status ? "which signals success or failure"
+                     : "which its other callers check (" + std::to_string(Checked) + " of " +
+                           std::to_string(Others) + " call sites)";
         raptor::reportAt(BR, this, "Ignored status return value",
                          "The return value of '" + Def->getNameAsString() + "', " + Why +
                              ", is ignored; on failure execution continues with "
