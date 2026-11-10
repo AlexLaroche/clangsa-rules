@@ -255,3 +255,43 @@ int main()
 	printf("Hello, World!");
 	return 0;
 }
+
+// --- The value is provably non-negative and fits (SymCrypt triage, 2026-11-09).
+#include <stdint.h>
+struct op { unsigned iHash; };
+void nonneg(int cpu[4], unsigned v, unsigned long long w, struct op *ops, int n)
+{
+	unsigned family, idx;
+	int zeros;
+	// ok: raptor-signed-unsigned-conversion
+	family = (cpu[0] >> 8) & 0xf;              // cpuid.c
+	// ok: raptor-signed-unsigned-conversion
+	idx = __builtin_ctz(v);                    // sc_lib.h
+	// ok: raptor-signed-unsigned-conversion
+	zeros = __builtin_clzll(w);
+	for (int i = 0; i < n; i++) {
+		// ok: raptor-signed-unsigned-conversion
+		ops[2 * i].iHash = i;                    // sha256Par.c: counter from 0 up
+	}
+	(void)family; (void)idx; (void)zeros;
+}
+void maybe_negative(int cpu[4], struct op *ops, int n, int start)
+{
+	unsigned u;
+	// ruleid: raptor-signed-unsigned-conversion
+	u = cpu[0] >> 8;                           // a negative int stays negative
+	for (int i = start; i < n; i++) {
+		// ruleid: raptor-signed-unsigned-conversion
+		ops[i].iHash = i;                        // start may be negative
+	}
+	for (int j = 0; j < n; j++) {
+		// ruleid: raptor-signed-unsigned-conversion
+		ops[j].iHash = j;
+		j -= 2;                                  // not only counting up
+	}
+	for (int k = n; k >= 0; k--) {
+		// todook: raptor-signed-unsigned-conversion
+		ops[0].iHash = k;                        // counting down
+	}
+	(void)u;
+}

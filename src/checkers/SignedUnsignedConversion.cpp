@@ -2,6 +2,10 @@
 // assigned/returned to an unsigned one (unsigned, size_t) or passed as the
 // size argument of a memory/string API, or an unsigned integer is
 // assigned/returned to a signed integer of the same or smaller width.
+//
+// Not reported: assignments of a value that is provably non-negative and fits
+// the destination (`(x >> 8) & 0xf`, `__builtin_ctz(v)`, the counter of
+// `for (int i = 0; ...; i++)`).
 #include "IntegerConversion.h"
 #include "Registry.h"
 
@@ -65,13 +69,17 @@ public:
 
     // (unsigned $_) = <... (int $_) ...> and the opposite direction
     AssignmentVisitor V;
+    // A value provably non-negative and small enough keeps its meaning.
+    auto Changes = [&](QualType Dest, const Expr *RHS) {
+      return converts(C, Dest, effectiveType(C, RHS, true)) && !fits(C, Dest, RHS, D->getBody());
+    };
     V.OnAssign = [&](QualType Dest, const Expr *RHS, const Stmt *S) {
-      if (converts(C, Dest, effectiveType(C, RHS, true)))
+      if (Changes(Dest, RHS))
         raptor::reportAt(BR, this, BugName, BugMsg, S, ADC);
     };
     V.OnInit = [&](QualType Dest, const Expr *Init, const VarDecl *,
                    const DeclStmt *DS) {
-      if (converts(C, Dest, effectiveType(C, Init, true)))
+      if (Changes(Dest, Init))
         raptor::reportAt(BR, this, BugName, BugMsg, DS, ADC);
     };
     V.TraverseStmt(D->getBody());

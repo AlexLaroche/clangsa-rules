@@ -14,7 +14,9 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
+#include "clang/Basic/Builtins.h"
 #include <functional>
+#include <optional>
 
 namespace raptor_int {
 
@@ -96,6 +98,166 @@ inline QualType effectiveType(ASTContext &C, const Expr *E,
     return combine(C, effectiveType(C, CO->getTrueExpr(), ThroughExplicit),
                    effectiveType(C, CO->getFalseExpr(), ThroughExplicit));
   return E->getType().getCanonicalType();
+}
+
+// Upper bound on the number of value bits of E (its value is in
+// [0, 2^bits)), or nullopt when E may be negative or nothing better than its
+// type is known. Follows `& C`, `% C`, `>> k` on unsigned values, `|`, `^`,
+// conditionals, and constants; explicit casts are looked through like the
+// rule does, and every node is capped by the width of its own type.
+inline std::optional<unsigned> valueBits(ASTContext &C, const Expr *E,
+                                         const Stmt *Body = nullptr);
+
+// Is VD the counter of a `for` loop in Body that starts at a non-negative
+// constant and only ever counts up (`for (int i = 0; i < n; i++)`)?
+inline bool isUpCountingCounter(ASTContext &C, const VarDecl *VD, const Stmt *Body) {
+  if (!Body || !VD->hasLocalStorage())
+    return false;
+  const ForStmt *Loop = nullptr;
+  std::function<void(const Stmt *)> Find = [&](const Stmt *S) {
+    if (!S || Loop)
+      return;
+    if (const auto *F = dyn_cast<ForStmt>(S))
+      if (const auto *DS = dyn_cast_or_null<DeclStmt>(F->getInit()))
+        for (const Decl *D : DS->decls())
+          if (D == VD)
+            Loop = F;
+    for (const Stmt *Ch : S->children())
+      Find(Ch);
+  };
+  Find(Body);
+  if (!Loop || !VD->getInit())
+    return false;
+  Expr::EvalResult R;
+  if (!VD->getInit()->EvaluateAsInt(R, C) || R.Val.getInt().isNegative())
+    return false;
+  // every write is `i++`, `++i` or `i += <positive constant>`
+  bool Ok = true;
+  std::function<void(const Stmt *)> Writes = [&](const Stmt *S) {
+    if (!S || !Ok)
+      return;
+    auto IsVD = [&](const Expr *E) {
+      const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+      return DRE && DRE->getDecl() == VD;
+    };
+    if (const auto *UO = dyn_cast<UnaryOperator>(S))
+      if (IsVD(UO->getSubExpr()) &&
+          (UO->isDecrementOp() || UO->getOpcode() == UO_AddrOf))
+        Ok = false;
+    if (const auto *BO = dyn_cast<BinaryOperator>(S))
+      if (BO->isAssignmentOp() && IsVD(BO->getLHS())) {
+        Expr::EvalResult K;
+        if (!(BO->getOpcode() == BO_AddAssign && BO->getRHS()->EvaluateAsInt(K, C) &&
+              K.Val.getInt().isStrictlyPositive()))
+          Ok = false;
+      }
+    for (const Stmt *Ch : S->children())
+      Writes(Ch);
+  };
+  Writes(Body);
+  return Ok;
+}
+
+inline std::optional<unsigned> valueBits(ASTContext &C, const Expr *E, const Stmt *Body) {
+  E = E->IgnoreParens();
+  if (E->isValueDependent() || !E->getType()->isIntegerType())
+    return std::nullopt;
+  unsigned TypeW = C.getIntWidth(E->getType());
+  bool Unsigned = E->getType()->isUnsignedIntegerType();
+  (void)Body;
+  auto Cap = [&](std::optional<unsigned> B) -> std::optional<unsigned> {
+    if (B)
+      return std::min(*B, TypeW);
+    return Unsigned ? std::optional<unsigned>(TypeW) : std::nullopt;
+  };
+  Expr::EvalResult R;
+  if (E->EvaluateAsInt(R, C)) {
+    const llvm::APSInt &V = R.Val.getInt();
+    if (V.isSigned() && V.isNegative())
+      return std::nullopt;
+    return V.getActiveBits();
+  }
+  if (const auto *CE = dyn_cast<CastExpr>(E)) {
+    if (CE->getCastKind() == CK_IntegralCast || CE->getCastKind() == CK_NoOp ||
+        CE->getCastKind() == CK_LValueToRValue) {
+      // A non-negative value that fits survives the cast; one that may not
+      // fit is what the rule reports, explicit cast or not.
+      auto B = valueBits(C, CE->getSubExpr(), Body);
+      if (B && *B <= TypeW)
+        return B;
+      return std::nullopt;
+    }
+    return Cap(std::nullopt);
+  }
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    auto L = valueBits(C, BO->getLHS(), Body), Rb = valueBits(C, BO->getRHS(), Body);
+    switch (BO->getOpcode()) {
+    case BO_And:
+      if (L && Rb)
+        return Cap(std::min(*L, *Rb));
+      return Cap(L ? L : Rb); // a non-negative side bounds the result
+    case BO_Or:
+    case BO_Xor:
+      return Cap(L && Rb ? std::optional<unsigned>(std::max(*L, *Rb)) : std::nullopt);
+    case BO_Rem:
+      if (Rb && BO->getLHS()->getType()->isUnsignedIntegerType() &&
+          BO->getRHS()->EvaluateAsInt(R, C) && R.Val.getInt().getExtValue() > 0)
+        return Cap((R.Val.getInt() - 1).getActiveBits());
+      return Cap(std::nullopt);
+    case BO_Shr:
+      if (L && BO->getRHS()->EvaluateAsInt(R, C)) {
+        uint64_t K = R.Val.getInt().getZExtValue();
+        return Cap(*L > K ? *L - K : 0);
+      }
+      return Cap(std::nullopt);
+    default:
+      return Cap(std::nullopt);
+    }
+  }
+  if (const auto *Call = dyn_cast<CallExpr>(E)) {
+    // bit counts: 0..64
+    switch (Call->getBuiltinCallee()) {
+    case Builtin::BI__builtin_ctz: case Builtin::BI__builtin_ctzl: case Builtin::BI__builtin_ctzll:
+    case Builtin::BI__builtin_clz: case Builtin::BI__builtin_clzl: case Builtin::BI__builtin_clzll:
+    case Builtin::BI__builtin_popcount: case Builtin::BI__builtin_popcountl:
+    case Builtin::BI__builtin_popcountll: case Builtin::BI__builtin_ffs:
+    case Builtin::BI__builtin_ffsl: case Builtin::BI__builtin_ffsll:
+      return 7u;
+    default:
+      return Cap(std::nullopt);
+    }
+  }
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      if (isUpCountingCounter(C, VD, Body))
+        return Cap(TypeW - 1);
+  if (const auto *CO = dyn_cast<AbstractConditionalOperator>(E)) {
+    auto T = valueBits(C, CO->getTrueExpr(), Body), F = valueBits(C, CO->getFalseExpr(), Body);
+    return Cap(T && F ? std::optional<unsigned>(std::max(*T, *F)) : std::nullopt);
+  }
+  return Cap(std::nullopt);
+}
+
+// Strip parens and implicit casts, not explicit ones.
+inline const Expr *stripImplicit(const Expr *E) {
+  while (true) {
+    const Expr *N = E->IgnoreParens();
+    if (const auto *IC = dyn_cast<ImplicitCastExpr>(N))
+      N = IC->getSubExpr();
+    if (N == E)
+      return E;
+    E = N;
+  }
+}
+
+// Does the value of RHS provably fit Dest?
+inline bool fits(ASTContext &C, QualType Dest, const Expr *RHS, const Stmt *Body) {
+  // the value before the implicit conversion to Dest
+  auto B = valueBits(C, stripImplicit(RHS), Body);
+  if (!B)
+    return false;
+  unsigned WD = C.getIntWidth(Dest);
+  return *B <= (Dest->isSignedIntegerType() ? WD - 1 : WD);
 }
 
 // Calls Fn(DestType, RHS, ReportNode) for every `x = e` and `T x = e`, and
