@@ -540,3 +540,46 @@ int typos_openssh_idioms(const char *line, const char *place, unsigned revents,
 		return 2;
 	return sign + i;
 }
+
+// Constant-time combinations of predicates (0/1 or 0/all-ones masks): `|`
+// and `&` give the same truth value as `||` and `&&`, without branching
+// (SymCrypt dsa.c, ec_short_weierstrass.c, fdef_mod.c).
+unsigned ModElementIsZero(const int *e);
+unsigned IntIsEqualUint32(const int *e, unsigned v);
+unsigned IntGetValueLsbits32(const int *e);
+int isalnum_bits(int c);
+int isdigit_bits(int c);
+int ct_predicates(const int *r, const int *s, const int *a, const int *b)
+{
+	// ok: raptor-typos
+	if (!(ModElementIsZero(r) | ModElementIsZero(s)))
+		return 1;
+	// ok: raptor-typos
+	if (ModElementIsZero(r) & ModElementIsZero(s))
+		return 2;
+	// ok: raptor-typos
+	if (IntIsEqualUint32(a, 0) | IntIsEqualUint32(b, 0) |
+	    (((IntGetValueLsbits32(a) | IntGetValueLsbits32(b)) & 1) ^ 1))
+		return 3;
+	// ruleid: raptor-typos
+	if (IntGetValueLsbits32(a) & IntGetValueLsbits32(b))    // 2 & 1 == 0
+		return 4;
+	// ruleid: raptor-typos
+	if (strcmp((const char *)a, "x") & strcmp((const char *)b, "y"))
+		return 5;
+	// ruleid: raptor-typos
+	if (isalnum_bits(*a) & isdigit_bits(*b))  // ctype-like: arbitrary bits
+		return 6;
+	return 0;
+}
+
+// The complement of a constant mask (SymCrypt ec_mul.c: reject unknown flags).
+#define FLAG_A 1
+#define FLAG_B 2
+int only_known_flags(unsigned flags)
+{
+	// ok: raptor-typos
+	if ((flags & ~(FLAG_A | FLAG_B)) != 0)
+		return -1;
+	return 0;
+}

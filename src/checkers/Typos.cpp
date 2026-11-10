@@ -134,8 +134,9 @@ bool inFlagMask(const BinaryOperator *BO, ASTContext &Ctx) {
     if (const auto *E = Parents[0].get<Expr>()) {
       if (const auto *P = dyn_cast<BinaryOperator>(E); P && isFlagTest(P, Ctx))
         return true;
+      // through parens, casts, and constant `|` / `~` (`flags & ~(A | B)`)
       if (isa<ParenExpr>(E) || isa<ImplicitCastExpr>(E) ||
-          (isa<BinaryOperator>(E) && !E->isValueDependent() &&
+          ((isa<BinaryOperator>(E) || isa<UnaryOperator>(E)) && !E->isValueDependent() &&
            E->isIntegerConstantExpr(Ctx))) {
         Cur = E;
         continue;
@@ -222,6 +223,57 @@ bool isCharPointer(QualType T) {
   return T->isPointerType() && T->getPointeeType()->isAnyCharacterType();
 }
 
+// A truth value that `&`/`|` combine like `&&`/`||`: a call to a predicate
+// (`IsZero`, `has_x`, `Equal`), `!e`, a comparison, `e & 1`, `b ^ 1` of such a
+// bit, or an `&`/`|` of truth values. Constant-time code combines predicates
+// (0/1 or 0/all-ones masks) without branching: SymCrypt
+// `if (!(SymCryptModElementIsZero(m, r) | SymCryptModElementIsZero(m, s)))`.
+bool isPredicateName(StringRef N) {
+  std::string L = N.lower();
+  for (const char *W : {"is", "has", "equal", "eq"}) {
+    size_t P = 0;
+    while ((P = L.find(W, P)) != std::string::npos) {
+      // a whole word: starting the name, after `_` or at a camel step, and
+      // ending it, before `_` or an uppercase letter (`IsZero`, `is_set`,
+      // `Equal`; not `isalpha`, whose result is an arbitrary bit)
+      size_t E = P + strlen(W);
+      bool Start = P == 0 || N[P - 1] == '_' ||
+                   (isupper((unsigned char)N[P]) && islower((unsigned char)N[P - 1]));
+      bool End = E == N.size() || N[E] == '_' || isupper((unsigned char)N[E]);
+      if (Start && End)
+        return true;
+      ++P;
+    }
+  }
+  return false;
+}
+bool isTruthValue(const Expr *E, const ASTContext &Ctx) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *CE = dyn_cast<CallExpr>(E)) {
+    const FunctionDecl *FD = CE->getDirectCallee();
+    return FD && FD->getIdentifier() && isPredicateName(FD->getName());
+  }
+  if (const auto *UO = dyn_cast<UnaryOperator>(E))
+    return UO->getOpcode() == UO_LNot;
+  const auto *BO = dyn_cast<BinaryOperator>(E);
+  if (!BO)
+    return false;
+  if (BO->isComparisonOp() || BO->isLogicalOp())
+    return true;
+  auto IsOne = [&](const Expr *X) {
+    Expr::EvalResult R;
+    return !X->isValueDependent() && X->EvaluateAsInt(R, Ctx) && R.Val.getInt() == 1;
+  };
+  if (BO->getOpcode() == BO_And && (IsOne(BO->getLHS()) || IsOne(BO->getRHS())))
+    return true;
+  if (BO->getOpcode() == BO_Xor)
+    return (IsOne(BO->getRHS()) && isTruthValue(BO->getLHS(), Ctx)) ||
+           (IsOne(BO->getLHS()) && isTruthValue(BO->getRHS(), Ctx));
+  if (BO->getOpcode() == BO_And || BO->getOpcode() == BO_Or)
+    return isTruthValue(BO->getLHS(), Ctx) && isTruthValue(BO->getRHS(), Ctx);
+  return false;
+}
+
 bool isNulChar(const Expr *E) {
   const auto *CL = dyn_cast<CharacterLiteral>(E->IgnoreParenCasts());
   return CL && CL->getValue() == 0;
@@ -255,6 +307,9 @@ class TyposChecker : public Checker<check::ASTCodeBody> {
       if (isFlagTest(BO, Ctx) || inFlagMask(BO, Ctx))
         continue;
       if (isCallArgument(BO, Ctx))
+        continue;
+      if ((BO->getOpcode() == BO_And || BO->getOpcode() == BO_Or) &&
+          isTruthValue(BO->getLHS(), Ctx) && isTruthValue(BO->getRHS(), Ctx))
         continue;
       if (BO->getOpcode() != BO_Assign && IfFromMacro && operandOfMacroOperator(BO, Ctx))
         continue;
