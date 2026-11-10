@@ -18,6 +18,12 @@
 // sockaddr_storage), and a length that contains the source but is bounded
 // from above before a copy into an array (libuv `if ((size_t)(z - p) >=
 // PATH_MAX) continue; memcpy(b, p, z - p);`).
+// Nor a constant length (`sizeof(src)`) that the destination can hold (an
+// array, `&obj`, a field at least that large), or a constant-length copy into
+// a caller's buffer `(pbDst, cbDst)` whose size cbDst is checked by an exiting
+// guard before it or an `if` around it (SymCrypt key encoders writing
+// fixed-size fields after `if (cbDst != TOTAL) return ERR;`). Both for mem*
+// copies only: a source-sized strncpy leaves the destination unterminated.
 // Copy functions include thin wrappers defined in the translation unit
 // (`static inline void *pj_memcpy(d, s, n) { return memcpy(d, s, n); }`).
 // A string literal source is excluded, including (like semgrep's constant
@@ -364,6 +370,96 @@ bool boundedAbove(const Stmt *Body, const CallExpr *Call, const Expr *Len,
   return B;
 }
 
+// Byte size of a destination whose size is known here: an array (not a
+// trailing `[1]` field), or `&obj` of a non-pointer object.
+std::optional<uint64_t> staticBytes(const Expr *Dst, ASTContext &Ctx) {
+  const Expr *E = stripCasts(Dst);
+  if (const auto *UO = dyn_cast<UnaryOperator>(E); UO && UO->getOpcode() == UO_AddrOf) {
+    QualType T = UO->getSubExpr()->getType();
+    if (T->isPointerType() || T->isIncompleteType() || T->isVoidType())
+      return std::nullopt;
+    if (!isa<ConstantArrayType>(T->getUnqualifiedDesugaredType()) && !T->isRecordType() &&
+        !T->isScalarType())
+      return std::nullopt;
+    if (isa<ConstantArrayType>(T->getUnqualifiedDesugaredType()) && !fixedCapacity(UO->getSubExpr()))
+      return std::nullopt;
+    return Ctx.getTypeSizeInChars(T).getQuantity();
+  }
+  if (isa<ConstantArrayType>(E->getType()->getUnqualifiedDesugaredType()) && fixedCapacity(E))
+    return Ctx.getTypeSizeInChars(E->getType()).getQuantity();
+  return std::nullopt;
+}
+
+std::optional<uint64_t> constantLen(const Expr *Len, ASTContext &Ctx) {
+  Expr::EvalResult R;
+  if (Len->isValueDependent() || !Len->EvaluateAsInt(R, Ctx) || R.Val.getInt().isNegative())
+    return std::nullopt;
+  return R.Val.getInt().getZExtValue();
+}
+
+// The pointer parameter Dst writes into: the parameter itself, `p + off`, or
+// a local cursor only ever set from it (`pbCurr = pbDst; pbCurr += n;`).
+const ParmVarDecl *destParam(const Expr *Dst, const Stmt *Body) {
+  const Expr *E = stripCasts(Dst);
+  if (const auto *BO = dyn_cast<BinaryOperator>(E);
+      BO && BO->isAdditiveOp() && BO->getLHS()->getType()->isPointerType())
+    E = stripCasts(BO->getLHS());
+  const auto *VD = dyn_cast_or_null<VarDecl>(refDecl(E));
+  if (!VD || !VD->getType()->isPointerType())
+    return nullptr;
+  if (const auto *P = dyn_cast<ParmVarDecl>(VD))
+    return P;
+  if (!VD->hasLocalStorage() || !VD->getInit())
+    return nullptr;
+  const auto *P = dyn_cast_or_null<ParmVarDecl>(refDecl(stripCasts(VD->getInit())));
+  if (!P)
+    return nullptr;
+  bool Other = false;
+  forEach<BinaryOperator>(Body, [&](const BinaryOperator *A) {
+    if (A->getOpcode() == BO_Assign && refDecl(A->getLHS()) == VD &&
+        refDecl(stripCasts(A->getRHS())) != P)
+      Other = true;
+  });
+  return Other ? nullptr : P;
+}
+
+// A constant-length copy into a caller's buffer whose size argument (the
+// integer parameter right after it, `(pbDst, cbDst)`) is checked before the
+// copy: `if (cbDst != TOTAL) return ERR;`, `if (cbDst < N) goto out;`, or
+// `if (cbDst >= N) { copy }` (SymCrypt key encoders).
+bool destSizeChecked(const Stmt *Body, const CallExpr *Call, const Expr *Dst,
+                     const SourceManager &SM) {
+  const ParmVarDecl *P = destParam(Dst, Body);
+  if (!P)
+    return false;
+  const auto *FD = dyn_cast<FunctionDecl>(P->getDeclContext());
+  unsigned I = P->getFunctionScopeIndex() + 1;
+  if (!FD || I >= FD->getNumParams() || !FD->getParamDecl(I)->getType()->isIntegerType())
+    return false;
+  const ParmVarDecl *Size = FD->getParamDecl(I);
+  SourceLocation At = SM.getExpansionLoc(Call->getBeginLoc());
+  auto OnSize = [&](const BinaryOperator *BO) {
+    return refDecl(BO->getLHS()) == Size || refDecl(BO->getRHS()) == Size;
+  };
+  bool Checked = false;
+  forEach<IfStmt>(Body, [&](const IfStmt *If) {
+    if (Checked || !If->getCond())
+      return;
+    bool Around = false;
+    forEach<CallExpr>(If->getThen(), [&](const CallExpr *C) { Around |= C == Call; });
+    bool Guard = !Around &&
+                 SM.isBeforeInTranslationUnit(SM.getExpansionLoc(If->getEndLoc()), At) &&
+                 exits(If->getThen());
+    if (!Around && !Guard)
+      return;
+    forEach<BinaryOperator>(If->getCond(), [&](const BinaryOperator *BO) {
+      if ((BO->isComparisonOp()) && OnSize(BO))
+        Checked = true;
+    });
+  });
+  return Checked;
+}
+
 class UseOfSourceSizeInCopyChecker : public Checker<check::ASTCodeBody> {
 public:
   void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr,
@@ -382,6 +478,17 @@ public:
                  !(fixedCapacity(Dst) &&
                    boundedAbove(Body, CE, Len, Len, Ctx.getSourceManager())));
           Bad = Bad && !allocatedFor(Body, CE, Dst, Len, Ctx);
+          // A constant length that the destination can hold, or a
+          // destination whose size the caller passed and the code checked.
+          // (mem* only: a source-sized strncpy also leaves the destination
+          // unterminated.)
+          bool Mem = StringRef(raptor::calleeName(CE)).contains("mem");
+          if (Bad && Mem)
+            if (auto K = constantLen(Len, Ctx)) {
+              auto Cap = staticBytes(Dst, Ctx);
+              Bad = !((Cap && *K <= *Cap) ||
+                      destSizeChecked(Body, CE, Dst, Ctx.getSourceManager()));
+            }
           if (!Bad && fixedCapacity(Dst))
             if (const Expr *T = sourceLength(Src, Len))
               Bad = !boundedAbove(Body, CE, Len, T, Ctx.getSourceManager());

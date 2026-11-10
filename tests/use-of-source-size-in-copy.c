@@ -1385,3 +1385,70 @@ void path_entry_unbounded(const char *p)
 	// ruleid: raptor-use-of-source-size-in-copy
 	memcpy(b, p, z - p);
 }
+
+// --- SymCrypt triage (2026-11-09): copies that cannot overflow.
+#define SEED_SIZE 32
+#define HASH_SIZE 32
+#define ERR_SIZE 1
+struct mlkey { unsigned char seed[SEED_SIZE]; unsigned char rnd[SEED_SIZE];
+               unsigned char hash[HASH_SIZE]; };
+struct cmac { unsigned char K1[16]; unsigned char K2[16]; };
+struct hstate { unsigned char buffer[64]; };
+
+// A destination of known size at least the constant length (aescmac.c,
+// hmac_pattern.c, mlkem.c).
+void fixed_dst(struct cmac *k, struct hstate *st, const struct mlkey *key)
+{
+	unsigned char buf[16], res[32], sample[64];
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(&k->K1, buf, sizeof(buf));
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(&st->buffer, res, sizeof(res));
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(sample, key->seed, sizeof(key->seed));
+	// ruleid: raptor-use-of-source-size-in-copy
+	memcpy(&k->K2, res, sizeof(res));          // 32 into 16
+}
+
+// An encoder that checks the caller's buffer size before writing constant-
+// size fields through a cursor (mlkem.c, mldsa_primitives.c, lms.c).
+int encode(const struct mlkey *key, unsigned char *pbDst, size_t cbDst)
+{
+	unsigned char *pbCurr = pbDst;
+	if (cbDst != 2 * SEED_SIZE + HASH_SIZE)
+		return ERR_SIZE;
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(pbCurr, key->seed, sizeof(key->seed));
+	pbCurr += sizeof(key->seed);
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(pbCurr, key->rnd, sizeof(key->rnd));
+	pbCurr += sizeof(key->rnd);
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(pbCurr, key->hash, sizeof(key->hash));
+	return 0;
+}
+int export_seed(const struct mlkey *key, unsigned char *pbDst, size_t cbDst)
+{
+	if (cbDst < SEED_SIZE)
+		return ERR_SIZE;
+	// ok: raptor-use-of-source-size-in-copy
+	memcpy(pbDst, key->seed, sizeof(key->seed));
+	return 0;
+}
+// Without a check of the destination size it is still reported.
+int export_unchecked(const struct mlkey *key, unsigned char *pbDst, size_t cbDst)
+{
+	// ruleid: raptor-use-of-source-size-in-copy
+	memcpy(pbDst, key->seed, sizeof(key->seed));
+	return (int)cbDst;
+}
+// A check of some other value does not count.
+int export_wrong_check(const struct mlkey *key, unsigned char *pbDst, size_t cbDst,
+                       size_t other)
+{
+	if (other != SEED_SIZE)
+		return ERR_SIZE;
+	// ruleid: raptor-use-of-source-size-in-copy
+	memcpy(pbDst, key->seed, sizeof(key->seed));
+	return (int)cbDst;
+}
