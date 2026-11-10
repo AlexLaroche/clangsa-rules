@@ -175,3 +175,19 @@ size_t nested_assert(int idx)
 	WINPR_ASSERT(idx < 100);
 	return a;
 }
+
+// Compile-time assertions are checked by the compiler in every build
+// (SymCrypt C_ASSERT, a C11 _Static_assert wrapper).
+#define C_ASSERT(e) typedef char __C_ASSERT__[(e) ? 1 : -1]
+#define STATIC_ASSERT(e) _Static_assert(e, #e)
+#define FIELD_SIZE 16
+#define HPOWERS 8
+void static_checks(int n)
+{
+	// ok: raptor-suspicious-assert
+	C_ASSERT(2 * HPOWERS <= FIELD_SIZE);
+	// ok: raptor-suspicious-assert
+	STATIC_ASSERT(sizeof(int) >= 4);
+	// ruleid: raptor-suspicious-assert
+	__ASSERT_NO_MSG(n < FIELD_SIZE);
+}

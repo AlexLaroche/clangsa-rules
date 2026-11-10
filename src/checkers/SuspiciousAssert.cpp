@@ -6,6 +6,10 @@
 // of an assertion macro through the SourceManager's expansion chain and lex
 // the arguments as written in the source. This also covers assertions
 // compiled out with NDEBUG, whose arguments are gone from the AST.
+//
+// Not reported: compile-time assertions, i.e. an assertion macro that
+// expands to a typedef (`typedef char x[(e) ? 1 : -1]`, SymCrypt C_ASSERT) or
+// a _Static_assert: the compiler checks them in every build.
 #include "Common.h"
 #include "Registry.h"
 #include "clang/Lex/Lexer.h"
@@ -71,6 +75,23 @@ public:
                          L, SM.getExpansionRange(R).getAsRange());
     };
 
+    // Compile-time assertions (`typedef char x[(e) ? 1 : -1]`,
+    // `_Static_assert(e, ...)` behind a macro): every macro invocation they
+    // expand from is checked by the compiler in every build.
+    std::set<unsigned> Static;
+    for (const BoundNodes &N : match(findAll(declStmt().bind("d")), *D->getBody(), Ctx)) {
+      const auto *DS = N.getNodeAs<DeclStmt>("d");
+      bool AllStatic = !DS->decls().empty();
+      for (const Decl *X : DS->decls())
+        AllStatic &= isa<TypedefNameDecl>(X) || isa<StaticAssertDecl>(X);
+      if (!AllStatic)
+        continue;
+      for (SourceLocation Loc = DS->getBeginLoc(); Loc.isMacroID();
+           Loc = SM.getImmediateMacroCallerLoc(Loc))
+        if (!SM.isMacroArgExpansion(Loc))
+          Static.insert(SM.getImmediateExpansionRange(Loc).getBegin().getRawEncoding());
+    }
+
     // assertion macros: $ASSERT(..., <... $_ < $_ ...>, ...)
     std::set<unsigned> Lexed; // macro invocations already lexed
     for (const BoundNodes &N : match(findAll(stmt().bind("s")), *D->getBody(), Ctx)) {
@@ -87,7 +108,8 @@ public:
         if (Call.getBegin().isMacroID() &&
             !SM.isMacroArgExpansion(Call.getBegin()))
           continue;
-        if (!Lexed.insert(Call.getBegin().getRawEncoding()).second)
+        if (!Lexed.insert(Call.getBegin().getRawEncoding()).second ||
+            Static.count(Call.getBegin().getRawEncoding()))
           break;
         if (argsHaveRelationalOp(Call, SM, Ctx.getLangOpts()))
           Report(Call.getBegin(), Call.getAsRange());
