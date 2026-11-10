@@ -28,6 +28,13 @@ DROP_WITH_ARG = {'-o', '-MF', '-MT', '-MQ'}
 DROP = {'-c', '-MD', '-MMD', '-M', '-MM', '-MP'}
 
 
+def keep_w(flag):
+    """-W flags that change what compiles: -Wno-* can turn off a diagnostic that
+    is an error by default (e.g. incompatible-function-pointer-types since
+    clang 16), and -Wp,-D/-U define macros."""
+    return flag.startswith(('-Wno-', '-Wp,-D', '-Wp,-U'))
+
+
 def analysis_cmd(entry, plugin, checkers, disabled):
     args = entry.get('arguments') or shlex.split(entry['command'])
     out, skip = [args[0]], False
@@ -38,12 +45,13 @@ def analysis_cmd(entry, plugin, checkers, disabled):
         if a in DROP_WITH_ARG:
             skip = True
             continue
-        if a in DROP or a.startswith('-O') or a.startswith('-W'):
+        if a in DROP or a.startswith('-O') or (a.startswith('-W') and not keep_w(a)):
             continue
         out.append(a)
     if 'clang' not in pathlib.Path(out[0]).name:
         out[0] = 'clang++' if entry['file'].endswith(('.cpp', '.cc', '.cxx')) else 'clang'
-    out += ['--analyze', '-w', '-o', '/dev/null',
+    # colour codes would hide every diagnostic from DIAG
+    out += ['-fno-color-diagnostics', '--analyze', '-w', '-o', '/dev/null',
             '-Xclang', '-load', '-Xclang', str(plugin),
             '-Xclang', f'-analyzer-checker={checkers}',
             '-Xclang', '-analyzer-output=text']
