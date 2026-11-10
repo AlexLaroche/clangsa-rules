@@ -73,6 +73,10 @@ Annotation changes from the originals:
   (the path-sensitive checkers find a case semgrep misses).
 - `unsafe-ret-snprintf-vsnprintf.c`: the original's misspelled `todoruled`
   is spelled `todoruleid`.
+- `write-into-stack-buffer.c`: `strlcpy(buf, string, BUFSIZE)` and
+  `memcpy(buf, string, BUFSIZE)` into `char buf[BUFSIZE]` became `ok`: a
+  length that cannot exceed the array cannot overflow it (noise cut after
+  the SymCrypt triage).
 - `command-injection.cpp`, `insecure-api-access-stat.cpp`: extra C++ tests.
 - `format-string-bugs.c`, `high-entropy-assignment.c`, `incorrect-use-of-sizeof.c`,
   `suspicious-assert.c`, `typos.c`, `write-into-stack-buffer.c`: regression
