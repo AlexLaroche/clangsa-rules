@@ -147,3 +147,24 @@ int main()
 	printf("Hello, World!");
 	return 0;
 }
+
+// A switch on an enum-typed value covering every enumerator: -Wswitch
+// already flags a missing one (SymCrypt parhash.c processingState).
+typedef enum { STATE_NEXT, STATE_DATA, STATE_PAD } proc_state;
+int step(proc_state s)
+{
+	// ok: raptor-missing-default-in-switch
+	switch (s)
+	{
+	case STATE_NEXT: return 1;
+	case STATE_DATA: return 2;
+	case STATE_PAD: return 3;
+	}
+	// ruleid: raptor-missing-default-in-switch
+	switch (s)
+	{
+	case STATE_NEXT: return 1;
+	case STATE_DATA: return 2;
+	}
+	return 0;
+}
