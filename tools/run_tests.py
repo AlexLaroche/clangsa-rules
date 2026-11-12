@@ -18,7 +18,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ANN = re.compile(r'//\s*(ruleid|ok|todoruleid|todook):\s*([\w-]+)')
 ERROR = re.compile(r'^(?:[^:\n]+:\d+:\d+: |clang(?:\+\+)?: )?(?:fatal )?error: .*$', re.M)
-DIAG = re.compile(r'^(?P<file>[^:\n]+):(?P<line>\d+):\d+: warning: .*\[(?P<checker>raptor\.\w+)\]$', re.M)
+DIAG = re.compile(r'^(?P<file>[^:\n]+):(?P<line>\d+):(?P<col>\d+): warning: .*\[(?P<checker>raptor\.\w+)\]$', re.M)
 
 
 def camel(rule):
@@ -72,16 +72,25 @@ def main():
         errors = ERROR.findall(err)
         found = {int(m['line']) for m in DIAG.finditer(err)
                  if m['checker'] == checker and pathlib.Path(m['file']).name == t.name}
+        # The same finding twice at one line:col (a macro expanding to two
+        # calls, two matchers) is a checker bug that a line set would hide.
+        seen, dups = set(), set()
+        for m in DIAG.finditer(err):
+            if m['checker'] == checker and pathlib.Path(m['file']).name == t.name:
+                key = (int(m['line']), int(m['col']))
+                (dups if key in seen else seen).add(key)
+        duplicates = sorted({line for line, _ in dups})
         exp = annotations(t)
         want = exp.get('ruleid', set())
         missed = sorted(want - found)
         incorrect = sorted(found - want - exp.get('todook', set()) - exp.get('todoruleid', set()))
-        ok = not missed and not incorrect and not errors and rc == 0
+        ok = not missed and not incorrect and not duplicates and not errors and rc == 0
         failed += not ok
         status = 'PASS' if ok else 'FAIL'
         print(f'{status} {checker:44} expected={len(want):3} found={len(found):3}'
               + (f' missed={missed}' if missed else '')
               + (f' incorrect={incorrect}' if incorrect else '')
+              + (f' duplicates={duplicates}' if duplicates else '')
               + (f' compile-errors={len(errors)}' if errors else ''))
         if errors and a.verbose:
             print('\n'.join('    ' + e for e in errors[:10]))

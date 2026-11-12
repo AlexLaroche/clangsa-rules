@@ -5,6 +5,7 @@
 #include "Common.h"
 #include "clang/AST/ParentMapContext.h"
 #include "clang/Lex/Lexer.h"
+#include "llvm/ADT/DenseSet.h"
 #include <functional>
 #include <regex>
 #include <string>
@@ -22,7 +23,15 @@ using clang::ento::BugReporter;
 // macro; otherwise the name of the called function (or function pointer
 // variable). Member calls (obj.f(), obj->f(), Class::f()) yield "", since
 // semgrep's `f(...)` does not match them.
-inline std::string calleeAsWritten(const CallExpr *CE, ASTContext &Ctx) {
+// MacroNameLoc, when given, receives the location of that outermost macro
+// name as written (invalid when the callee is not from a macro): a macro that
+// expands to several calls (APR's `apr_pcalloc(p, n)` is
+// `memset(apr_palloc(p, n), 0, n)`) is one call as written, and callers use
+// the location to report it once.
+inline std::string calleeAsWritten(const CallExpr *CE, ASTContext &Ctx,
+                                   SourceLocation *MacroNameLoc = nullptr) {
+  if (MacroNameLoc)
+    *MacroNameLoc = SourceLocation();
   const Expr *Callee = CE->getCallee()->IgnoreParenImpCasts();
   const SourceManager &SM = Ctx.getSourceManager();
   SourceLocation L = Callee->getBeginLoc();
@@ -32,6 +41,8 @@ inline std::string calleeAsWritten(const CallExpr *CE, ASTContext &Ctx) {
       Name = Lexer::getImmediateMacroName(L, SM, Ctx.getLangOpts());
       L = SM.getImmediateMacroCallerLoc(L);
     }
+    if (MacroNameLoc)
+      *MacroNameLoc = L;
     return Name.str();
   }
   if (const auto *DRE = dyn_cast<DeclRefExpr>(Callee)) {
@@ -158,9 +169,14 @@ inline void forEachCall(const Decl *D, AnalysisManager &Mgr,
 inline void reportCallsTo(const Decl *D, AnalysisManager &Mgr, BugReporter &BR,
                           const ento::CheckerBase *C, StringRef Title,
                           StringRef Msg, std::initializer_list<StringRef> Names) {
+  llvm::DenseSet<unsigned> Reported; // macro name tokens already reported
   forEachCall(D, Mgr, [&](const CallExpr *CE) {
-    if (isOneOf(calleeAsWritten(CE, Mgr.getASTContext()), Names))
-      reportAt(BR, C, Title, Msg, CE, Mgr.getAnalysisDeclContext(D));
+    SourceLocation NameLoc;
+    if (!isOneOf(calleeAsWritten(CE, Mgr.getASTContext(), &NameLoc), Names))
+      return;
+    if (NameLoc.isValid() && !Reported.insert(NameLoc.getRawEncoding()).second)
+      return;
+    reportAt(BR, C, Title, Msg, CE, Mgr.getAnalysisDeclContext(D));
   });
 }
 

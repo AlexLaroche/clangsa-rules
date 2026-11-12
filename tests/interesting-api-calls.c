@@ -396,6 +396,20 @@ void test_spawn(int argc, char *argv[])
 	exit(0);
 }
 
+/* A macro that expands to two calls (APR's apr_pcalloc is
+ * memset(apr_palloc(p, n), 0, n)) is one call as written: one report
+ * (httpd h2_mplx.c triage, 2026-11-12). */
+void *pool_palloc(void *p, size_t n);
+#define pool_pcalloc(p, n) memset(pool_palloc(p, n), 0, n)
+void pcalloc_macro(void *pool)
+{
+	// ruleid: raptor-interesting-api-calls
+	char *b = pool_pcalloc(pool, 16);
+	// ruleid: raptor-interesting-api-calls
+	char *c = pool_pcalloc(pool, 1), *d = pool_pcalloc(pool, 2);
+	(void)b; (void)c; (void)d;
+}
+
 int main()
 {
 	printf("Hello, World!");

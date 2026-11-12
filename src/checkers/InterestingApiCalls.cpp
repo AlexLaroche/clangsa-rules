@@ -82,8 +82,10 @@ public:
     static const std::regex Len(LenRegex);
 
     ASTContext &Ctx = Mgr.getASTContext();
+    llvm::DenseSet<unsigned> Reported; // macro name tokens already reported
     raptor::api::forEachCall(D, Mgr, [&](const CallExpr *CE) {
-      std::string Name = raptor::api::calleeAsWritten(CE, Ctx);
+      SourceLocation NameLoc;
+      std::string Name = raptor::api::calleeAsWritten(CE, Ctx, &NameLoc);
       if (Name.empty())
         return;
       bool Match = false;
@@ -98,6 +100,10 @@ public:
         Match = !IsSizeOf && raptor::api::regexMatchesAtStart(
                                  raptor::api::textAsWritten(L, Ctx), Len);
       }
+      // One report per macro call as written (`apr_pcalloc` expands to
+      // memset and apr_palloc, both named apr_pcalloc here).
+      if (Match && NameLoc.isValid() && !Reported.insert(NameLoc.getRawEncoding()).second)
+        return;
       if (Match)
         raptor::reportAt(BR, this, "Interesting API call",
                          "Call to an interesting and potentially insecure API "
