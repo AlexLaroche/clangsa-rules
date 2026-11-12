@@ -74,12 +74,13 @@ public:
       return converts(C, Dest, effectiveType(C, RHS, true)) && !fits(C, Dest, RHS, D->getBody());
     };
     V.OnAssign = [&](QualType Dest, const Expr *RHS, const Stmt *S) {
-      if (Changes(Dest, RHS))
+      if (Changes(Dest, RHS) &&
+          !isSaveRestore(C, cast<BinaryOperator>(S)->getLHS(), nullptr, RHS, D->getBody()))
         raptor::reportAt(BR, this, BugName, BugMsg, S, ADC);
     };
-    V.OnInit = [&](QualType Dest, const Expr *Init, const VarDecl *,
+    V.OnInit = [&](QualType Dest, const Expr *Init, const VarDecl *VD,
                    const DeclStmt *DS) {
-      if (Changes(Dest, Init))
+      if (Changes(Dest, Init) && !isSaveRestore(C, nullptr, VD, Init, D->getBody()))
         raptor::reportAt(BR, this, BugName, BugMsg, DS, ADC);
     };
     V.TraverseStmt(D->getBody());

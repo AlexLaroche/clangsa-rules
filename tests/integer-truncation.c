@@ -158,3 +158,21 @@ void halves_of_field(uint32_t *s32, const struct gstate *st)
 	// ruleid: raptor-integer-truncation
 	s32[2] = (uint32_t)st->ull[1];             // ull[1] is never shifted
 }
+
+// --- Same-width save/restore round trip (httpd h2_mplx.c triage, 2026-11-12).
+struct conn2 { unsigned aborted; unsigned long len; };
+void save_restore2(struct conn2 *c)
+{
+	int old;
+	// ok: raptor-integer-truncation
+	old = c->aborted;
+	c->aborted = 1;
+	c->aborted = old;
+}
+void narrow_round_trip(struct conn2 *c)
+{
+	// ruleid: raptor-integer-truncation
+	unsigned old = c->len;
+	c->len = 0;
+	c->len = old;
+}

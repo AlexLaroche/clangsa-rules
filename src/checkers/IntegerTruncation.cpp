@@ -24,14 +24,6 @@ constexpr const char *BugMsg =
     "Truncation errors occur when a primitive is cast to a primitive of a "
     "smaller size and data is lost in the conversion";
 
-// Structurally identical expressions (`st->ull[0]` twice).
-bool sameExpr(ASTContext &C, const Expr *A, const Expr *B) {
-  llvm::FoldingSetNodeID IA, IB;
-  A->Profile(IA, C, /*Canonical=*/true);
-  B->Profile(IB, C, /*Canonical=*/true);
-  return IA == IB;
-}
-
 // `(T)x` or `(T)(x >> k)` where the function also shifts x right by a
 // multiple of T's width: a wide value deliberately split into limbs or bytes
 // (`dst[i] = (UINT32)t; t >>= 32;`, `p[0] = (BYTE)(n >> 8); p[1] = (BYTE)n;`).
@@ -86,12 +78,13 @@ public:
              !isDeliberateSplit(C, RHS, D->getBody());
     };
     V.OnAssign = [&](QualType Dest, const Expr *RHS, const Stmt *S) {
-      if (Lossy(Dest, RHS))
+      if (Lossy(Dest, RHS) &&
+          !isSaveRestore(C, cast<BinaryOperator>(S)->getLHS(), nullptr, RHS, D->getBody()))
         raptor::reportAt(BR, this, BugName, BugMsg, S, ADC);
     };
-    V.OnInit = [&](QualType Dest, const Expr *Init, const VarDecl *,
+    V.OnInit = [&](QualType Dest, const Expr *Init, const VarDecl *VD,
                    const DeclStmt *DS) {
-      if (Lossy(Dest, Init))
+      if (Lossy(Dest, Init) && !isSaveRestore(C, nullptr, VD, Init, D->getBody()))
         raptor::reportAt(BR, this, BugName, BugMsg, DS, ADC);
     };
     V.TraverseStmt(D->getBody());

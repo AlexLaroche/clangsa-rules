@@ -295,3 +295,49 @@ void maybe_negative(int cpu[4], struct op *ops, int n, int start)
 	}
 	(void)u;
 }
+
+// --- Same-width save/restore round trip (httpd h2_mplx.c triage, 2026-11-12):
+// the value comes back unchanged, so the sign reinterpretation is harmless.
+struct conn { unsigned aborted; unsigned flags; short len; };
+void save_restore(struct conn *c)
+{
+	int old;
+	// ok: raptor-signed-unsigned-conversion
+	old = c->aborted;
+	c->aborted = 1;
+	// ok: raptor-signed-unsigned-conversion
+	c->aborted = old;
+}
+void save_restore_init(struct conn *c)
+{
+	// ok: raptor-signed-unsigned-conversion
+	int old = c->flags;
+	c->flags = 0;
+	if (old)
+		// ok: raptor-signed-unsigned-conversion
+		c->flags = old;
+}
+void save_not_restore(struct conn *c)
+{
+	// ruleid: raptor-signed-unsigned-conversion
+	int old = c->aborted;
+	// ruleid: raptor-signed-unsigned-conversion
+	c->flags = old;
+}
+void save_modified(struct conn *c)
+{
+	// ruleid: raptor-signed-unsigned-conversion
+	int old = c->aborted;
+	old -= 2;
+	// ruleid: raptor-signed-unsigned-conversion
+	c->aborted = old;
+}
+void save_sign_used(struct conn *c)
+{
+	// ruleid: raptor-signed-unsigned-conversion
+	int old = c->aborted;
+	if (old < 0)
+		return;
+	// ruleid: raptor-signed-unsigned-conversion
+	c->aborted = old;
+}

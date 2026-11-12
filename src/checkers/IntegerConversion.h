@@ -15,6 +15,7 @@
 #include "clang/AST/StmtVisitor.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/Basic/Builtins.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include <functional>
 #include <optional>
 
@@ -258,6 +259,134 @@ inline bool fits(ASTContext &C, QualType Dest, const Expr *RHS, const Stmt *Body
     return false;
   unsigned WD = C.getIntWidth(Dest);
   return *B <= (Dest->isSignedIntegerType() ? WD - 1 : WD);
+}
+
+// Structurally identical expressions (`st->ull[0]` twice).
+inline bool sameExpr(ASTContext &C, const Expr *A, const Expr *B) {
+  llvm::FoldingSetNodeID IA, IB;
+  A->Profile(IA, C, /*Canonical=*/true);
+  B->Profile(IB, C, /*Canonical=*/true);
+  return IA == IB;
+}
+
+// A same-width save/restore round trip: `L = E; ...; E = L;` (or `T L = E`),
+// where L is a local of E's width that differs only in sign. The value comes
+// back unchanged, so neither conversion changes it (httpd h2_mplx.c
+// `old_aborted = m->c1->aborted; ... m->c1->aborted = old_aborted;`).
+// Required: the save is L's only write, L's address is never taken, and L is
+// otherwise read only by restores into the same E or as a truth value
+// (`if (old)`, `!old`); `old < 0` or arithmetic on L keeps the warnings.
+// Save is `L = E` / `T L = E`; Restore is `E = L`. Dst is the assigned
+// lvalue (null for an initialisation `T L = E`, whose variable is InitVar).
+inline bool isSaveRestore(ASTContext &C, const Expr *Dst, const VarDecl *InitVar,
+                          const Expr *RHS, const Stmt *Body) {
+  if (!Body)
+    return false;
+  const Expr *Src = stripImplicit(RHS);
+  const VarDecl *L = nullptr;
+  const Expr *E = nullptr; // the saved lvalue
+  auto LocalOf = [](const Expr *X) -> const VarDecl * {
+    const auto *DRE = dyn_cast<DeclRefExpr>(X->IgnoreParens());
+    const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    return VD && VD->hasLocalStorage() && !isa<ParmVarDecl>(VD) ? VD : nullptr;
+  };
+  if (InitVar) { // T L = E
+    L = InitVar->hasLocalStorage() && !isa<ParmVarDecl>(InitVar) ? InitVar : nullptr;
+    E = Src;
+  } else if (const VarDecl *V = LocalOf(Dst)) { // L = E
+    L = V;
+    E = Src;
+  } else if (const VarDecl *V = LocalOf(Src)) { // E = L: find the save
+    L = V;
+    if (L->getInit())
+      E = stripImplicit(L->getInit());
+    std::function<void(const Stmt *)> FindSave = [&](const Stmt *S) {
+      if (!S)
+        return;
+      if (const auto *BO = dyn_cast<BinaryOperator>(S))
+        if (BO->getOpcode() == BO_Assign && LocalOf(BO->getLHS()) == L)
+          E = stripImplicit(BO->getRHS());
+      for (const Stmt *Ch : S->children())
+        FindSave(Ch);
+    };
+    if (!E)
+      FindSave(Body);
+    if (!E || !sameExpr(C, E, Dst->IgnoreParens()))
+      return false;
+  }
+  if (!L || !E || LocalOf(E))
+    return false;
+  if (!isa<MemberExpr>(E) && !isa<DeclRefExpr>(E) && !isa<ArraySubscriptExpr>(E))
+    return false;
+  QualType TL = L->getType(), TE = E->getType();
+  if (!TL->isIntegerType() || !TE->isIntegerType() || C.getIntWidth(TL) != C.getIntWidth(TE))
+    return false;
+
+  // Every use of L: one write (the save), restores into E, truth values.
+  unsigned Writes = L->getInit() ? 1 : 0, Restores = 0;
+  bool Bad = false;
+  llvm::SmallPtrSet<const DeclRefExpr *, 8> Allowed;
+  auto Truth = [&](const Expr *X) {
+    if (!X)
+      return;
+    X = stripImplicit(X);
+    if (const auto *U = dyn_cast<UnaryOperator>(X))
+      if (U->getOpcode() == UO_LNot)
+        X = stripImplicit(U->getSubExpr());
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(X))
+      if (DRE->getDecl() == L)
+        Allowed.insert(DRE);
+  };
+  std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
+    if (!S)
+      return;
+    if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
+      if (BO->isAssignmentOp() && LocalOf(BO->getLHS()) == L) {
+        if (BO->getOpcode() != BO_Assign)
+          Bad = true;
+        ++Writes;
+        Allowed.insert(cast<DeclRefExpr>(BO->getLHS()->IgnoreParens()));
+      } else if (BO->getOpcode() == BO_Assign && LocalOf(stripImplicit(BO->getRHS())) == L) {
+        if (sameExpr(C, BO->getLHS()->IgnoreParens(), E)) {
+          ++Restores;
+          Allowed.insert(cast<DeclRefExpr>(stripImplicit(BO->getRHS())));
+        }
+      } else if (BO->isLogicalOp()) {
+        Truth(BO->getLHS());
+        Truth(BO->getRHS());
+      }
+    } else if (const auto *U = dyn_cast<UnaryOperator>(S)) {
+      if ((U->isIncrementDecrementOp() || U->getOpcode() == UO_AddrOf) &&
+          LocalOf(U->getSubExpr()) == L)
+        Bad = true;
+      if (U->getOpcode() == UO_LNot)
+        Truth(U->getSubExpr());
+    } else if (const auto *If = dyn_cast<IfStmt>(S)) {
+      Truth(If->getCond());
+    } else if (const auto *W = dyn_cast<WhileStmt>(S)) {
+      Truth(W->getCond());
+    } else if (const auto *CO = dyn_cast<ConditionalOperator>(S)) {
+      Truth(CO->getCond());
+    }
+    for (const Stmt *Ch : S->children())
+      Walk(Ch);
+  };
+  Walk(Body);
+  if (Bad || Writes != 1 || Restores == 0)
+    return false;
+  // Any other read of L (`old < 0`, `old + 1`, a call argument) disqualifies.
+  std::function<bool(const Stmt *)> OtherRead = [&](const Stmt *S) -> bool {
+    if (!S)
+      return false;
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(S))
+      if (DRE->getDecl() == L && !Allowed.count(DRE))
+        return true;
+    for (const Stmt *Ch : S->children())
+      if (OtherRead(Ch))
+        return true;
+    return false;
+  };
+  return !OtherRead(Body);
 }
 
 // Calls Fn(DestType, RHS, ReportNode) for every `x = e` and `T x = e`, and
