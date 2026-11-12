@@ -1,0 +1,42 @@
+{
+  "name": "tor-kist-pending-double-add",
+  "cve": "CVE-2018-0491",
+  "repo": "https://github.com/torproject/tor.git",
+  "vulnerable": "df312b3cf637d2c5487adc60ed541823bef56f06",
+  "fixed": "cb5654f300312a8f4c777378d68696667eff427b",
+  "fixed_note": "sched: a channel is added to channels_pending only when its sched_heap_idx is -1 (not in the queue), so the KIST scheduler cannot hold it twice and use it after it is freed (bug 24700, TROVE-2018-002)",
+  "setup": [
+    [
+      "autoreconf",
+      "-i",
+      "-f"
+    ],
+    [
+      "./configure",
+      "--disable-asciidoc",
+      "--disable-unittests",
+      "--disable-system-torrc"
+    ]
+  ],
+  "checker": "raptor.DuplicateContainerInsert",
+  "args": [
+    "-I.",
+    "-Isrc/common",
+    "-Isrc/or",
+    "-Isrc/ext",
+    "-Isrc/trunnel",
+    "-Isrc/ext/trunnel"
+  ],
+  "files": {
+    "src/or/scheduler.c": [
+      {
+        "re": "^ +smartlist_pqueue_add\\(channels_pending,$",
+        "after": "^scheduler_channel_has_waiting_cells,\\(channel_t \\*chan\\)\\)$"
+      },
+      {
+        "re": "^ +smartlist_pqueue_add\\(channels_pending,$",
+        "after": "^scheduler_channel_wants_writes\\(channel_t \\*chan\\)$"
+      }
+    ]
+  }
+}

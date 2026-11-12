@@ -1,0 +1,46 @@
+{
+  "name": "httpd-h2-spurge-double-purge",
+  "cve": "CVE-2026-23918",
+  "repo": "https://github.com/apache/httpd.git",
+  "vulnerable": "0245037281fdd4b6c77236ffbb3632e770c4ad13",
+  "fixed": "542e0da07048d3934ef18c22b44cf8d62e64067f",
+  "fixed_note": "mod_http2 2.0.37 (r1930444): every add to m->spurge goes through add_for_purge(), which skips a stream already scheduled for purging, so an early RST_STREAM no longer destroys the stream twice",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      ": > include/ap_config_auto.h && : > include/ap_config_layout.h"
+    ]
+  ],
+  "checker": "raptor.DuplicateContainerInsert",
+  "args": [
+    "-DLINUX",
+    "-D_REENTRANT",
+    "-D_GNU_SOURCE",
+    "-Iinclude",
+    "-Ios/unix",
+    "-Imodules/http2",
+    "-I/usr/include/apr-1.0"
+  ],
+  "files": {
+    "modules/http2/h2_mplx.c": {
+      "vulnerable": [
+        {
+          "re": "^ +APR_ARRAY_PUSH\\(m->spurge, h2_stream \\*\\) = stream;$",
+          "count": 3
+        }
+      ],
+      "fixed": [
+        {
+          "re": "^ +APR_ARRAY_PUSH\\(m->spurge, h2_stream \\*\\) = stream;$",
+          "count": 1
+        },
+        {
+          "re": "^ +add_for_purge\\(m, stream\\);$",
+          "count": 2
+        },
+        "^ +int added = add_for_purge\\(m, stream\\);$"
+      ]
+    }
+  }
+}
