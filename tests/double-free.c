@@ -641,3 +641,51 @@ void refill_in_loop(const char *name, int tries)
 			break;
 	}
 }
+
+// A type method handed the typed object releases what it holds (OpenSSL
+// asn1_bio_free: prefix_free then suffix_free on the same BIO).
+typedef struct bio BIO;
+typedef void asn1_ps_func(BIO *b, unsigned char **pbuf, int *plen, void *parg);
+typedef struct {
+	asn1_ps_func *prefix_free, *suffix_free;
+	unsigned char *ex_buf;
+	int ex_len;
+	void *ex_arg;
+} ASN1_CTX;
+void asn1_bio_free(BIO *b, ASN1_CTX *ctx)
+{
+	ctx->prefix_free(b, &ctx->ex_buf, &ctx->ex_len, &ctx->ex_arg);
+	// ok: raptor-double-free
+	ctx->suffix_free(b, &ctx->ex_buf, &ctx->ex_len, &ctx->ex_arg);
+}
+
+// A reference taken with *_up_ref allows one more release (OpenSSL
+// s_server: EVP_PKEY_up_ref(dhpkey) for ctx and ctx2, then both released
+// on error).
+typedef struct evp_pkey EVP_PKEY;
+int EVP_PKEY_up_ref(EVP_PKEY *pkey);
+void EVP_PKEY_free(EVP_PKEY *pkey);
+int set0_dh(EVP_PKEY *pkey);
+int use_twice(EVP_PKEY *dhpkey)
+{
+	if (!EVP_PKEY_up_ref(dhpkey)) {
+		EVP_PKEY_free(dhpkey);
+		return 0;
+	}
+	if (!set0_dh(dhpkey)) {
+		EVP_PKEY_free(dhpkey);
+		// ok: raptor-double-free
+		EVP_PKEY_free(dhpkey);
+		return 0;
+	}
+	return 1;
+}
+// One reference taken, three releases: the third is one too many.
+void release_three(EVP_PKEY *pkey)
+{
+	EVP_PKEY_up_ref(pkey);
+	EVP_PKEY_free(pkey);
+	EVP_PKEY_free(pkey);
+	// ruleid: raptor-double-free
+	EVP_PKEY_free(pkey);
+}

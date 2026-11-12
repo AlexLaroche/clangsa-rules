@@ -82,7 +82,7 @@ public:
             if (VD->getInit())
               Defs[VD->getNameAsString()].push_back(VD->getInit());
       } else if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
-        if (BO->isRelationalOp())
+        if (BO->isComparisonOp())
           Compares.push_back(BO);
         else if (BO->isAssignmentOp()) {
           if (const VarDecl *V = localVar(BO->getLHS()))
@@ -383,8 +383,11 @@ private:
       for (const std::string &K : CS)
         HasCap |= Caps.count(K) > 0;
       // The function consults the capacity (`j < value->len`, or `p < last`
-      // with `last = s.data + s.len`): the size is bounded on that path.
-      if (HasCap)
+      // with `last = s.data + s.len`): the size is bounded on that path. An
+      // equality test bounds it only against the size itself
+      // (`if (enc->data_size != enc_in->data_size) return 0;`), not
+      // `if (b->len == 0)`.
+      if (HasCap && (C->isRelationalOp() || shares(CS)))
         return true;
     }
     for (const BinaryOperator *A : FieldAssigns)

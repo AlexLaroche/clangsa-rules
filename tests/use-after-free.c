@@ -556,6 +556,94 @@ int ssl_handshake_init(Ssl *ssl)
 	return ssl->state;
 }
 
+// A type method called through a pointer and handed the typed object
+// (OpenSSL `ameth->pkey_free(x)`, `ctx->prefix_free(b, &ctx->ex_buf, ...)`)
+// releases what the object holds, not the object: generic allocator hooks
+// take void *.
+typedef struct evp_pkey EVP_PKEY;
+typedef struct {
+	void (*pkey_free)(EVP_PKEY *pkey);
+} AMETH;
+struct evp_pkey {
+	void *ptr;
+};
+void evp_pkey_free_legacy(EVP_PKEY *x, const AMETH *ameth)
+{
+	ameth->pkey_free(x);
+	// ok: raptor-use-after-free
+	x->ptr = 0;
+}
+typedef struct bio BIO;
+typedef void asn1_ps_func(BIO *b, unsigned char **pbuf, int *plen, void *parg);
+typedef struct {
+	asn1_ps_func *prefix_free;
+	unsigned char *ex_buf;
+	int ex_len;
+	void *ex_arg;
+} ASN1_CTX;
+void BIO_set_data(BIO *b, void *p);
+void asn1_bio_free(BIO *b, ASN1_CTX *ctx)
+{
+	ctx->prefix_free(b, &ctx->ex_buf, &ctx->ex_len, &ctx->ex_arg);
+	// ok: raptor-use-after-free
+	BIO_set_data(b, 0);
+}
+// A generic hook taking void * still releases it.
+typedef struct {
+	void (*mem_free)(void *p);
+} Alloc;
+int hook_then_read(Alloc *al, int *p)
+{
+	al->mem_free(p);
+	// ruleid: raptor-use-after-free
+	return p[0];
+}
+
+// Complementary tests of the same pointer (OpenSSL OSSL_STORE_load():
+// `if (ctx->fetched_loader != NULL) v = ...; if (ctx->fetched_loader == NULL)
+// v = ...;`): every path back to `again` sets v again.
+typedef struct info INFO;
+void INFO_free(INFO *v) { free(v); }
+int INFO_type(INFO *v);
+typedef struct {
+	INFO *(*fetch)(void);
+	INFO *(*load)(void);
+	int expected;
+} STORE;
+INFO *store_load(STORE *ctx)
+{
+	INFO *v = 0;
+again:
+	if (ctx->fetch != 0)
+		v = ctx->fetch();
+	if (ctx->fetch == 0)
+		v = ctx->load();
+	// ok: raptor-use-after-free
+	if (v != 0 && INFO_type(v) != ctx->expected) {
+		INFO_free(v);
+		goto again;
+	}
+	// ok: raptor-use-after-free
+	return v;
+}
+// Only one of the two tests sets it: still a use after free.
+INFO *store_load_bad(STORE *ctx)
+{
+	INFO *v = 0;
+again:
+	if (ctx->fetch != 0)
+		v = ctx->fetch();
+	if (ctx->load == 0)
+		v = 0;
+	// ruleid: raptor-use-after-free
+	if (v != 0 && INFO_type(v) != ctx->expected) {
+		INFO_free(v);
+		goto again;
+	}
+	// ruleid: raptor-use-after-free
+	return v;
+}
+
 int main()
 {
 	printf("Hello, World!");

@@ -97,7 +97,7 @@ public:
     auto retried = [&](const Stmt *U, const raptor_mem::KeySet &Freed) {
       bool Any = false;
       for (const std::string &K : Freed) {
-        if (K.empty() || K[0] == '@' || K[0] == '?' || K[0] == '&' ||
+        if (K.empty() || K[0] == '@' || K[0] == '?' || K[0] == '&' || K[0] == '+' ||
             !raptor_mem::findKey(U, {K}))
           continue;
         std::string Pre = "@" + K + "#";

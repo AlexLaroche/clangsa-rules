@@ -236,3 +236,86 @@ void copy_elts(void *d, const Array *a) {
   // ok: raptor-copy-ignores-source-size
   memcpy(d, a->elts, a->nelts * 16);
 }
+
+// The length is filled by a writer bound to the source buffer (OpenSSL
+// marshal_validation_token(): WPACKET_init(&wpkt, buf_mem) ...
+// WPACKET_get_total_written(&wpkt, buffer_len); memcpy(.., buf_mem->data,
+// *buffer_len)).
+typedef struct {
+  size_t length;
+  char *data;
+  size_t max;
+} BUF_MEM;
+typedef struct wpacket_st { BUF_MEM *buf; size_t written; } WPACKET;
+int WPACKET_init(WPACKET *pkt, BUF_MEM *b);
+int WPACKET_get_total_written(WPACKET *pkt, size_t *written);
+int WPACKET_get_length(WPACKET *pkt, size_t *len);
+int marshal(BUF_MEM *buf_mem, unsigned char *buffer, size_t *buffer_len) {
+  WPACKET wpkt;
+  if (!WPACKET_init(&wpkt, buf_mem) || !WPACKET_get_total_written(&wpkt, buffer_len))
+    return 0;
+  // ok: raptor-copy-ignores-source-size
+  memcpy(buffer, buf_mem->data, *buffer_len);
+  return 1;
+}
+int transcript(BUF_MEM *tpkt_mem, unsigned char *out) {
+  WPACKET tpkt;
+  size_t tlen;
+  if (!WPACKET_init(&tpkt, tpkt_mem) || !WPACKET_get_length(&tpkt, &tlen))
+    return 0;
+  // ok: raptor-copy-ignores-source-size
+  memcpy(out, tpkt_mem->data, tlen);
+  return 1;
+}
+// A writer bound to another buffer says nothing about this one.
+int transcript_other(BUF_MEM *tpkt_mem, BUF_MEM *other, unsigned char *out) {
+  WPACKET tpkt;
+  size_t tlen;
+  if (!WPACKET_init(&tpkt, other) || !WPACKET_get_length(&tpkt, &tlen))
+    return 0;
+  // ruleid: raptor-copy-ignores-source-size
+  memcpy(out, tpkt_mem->data, tlen);
+  return 1;
+}
+
+// The length is state of the source's own object, through a local (OpenSSL
+// tls_retry_write_records(): left = wb->left; memcpy(.., wb->buf +
+// wb->offset, left)).
+typedef struct {
+  unsigned char *buf;
+  size_t len;
+  size_t offset;
+  size_t left;
+} TLS_BUFFER;
+void move_unsent(unsigned char *buf, TLS_BUFFER *wb) {
+  size_t left = wb->left;
+  // ok: raptor-copy-ignores-source-size
+  memcpy(buf, wb->buf + wb->offset, left);
+}
+
+// A local holding only a constant is a constant (OpenSSL des_ede3_wrap():
+// size_t ivlen = TDES_IVLEN; memcpy(out, ctx->iv, ivlen)).
+typedef struct {
+  unsigned char *iv;
+  size_t ivlen;
+} WRAP_CTX;
+void put_iv(unsigned char *out, WRAP_CTX *ctx) {
+  size_t ivlen = 8;
+  // ok: raptor-copy-ignores-source-size
+  memcpy(out, ctx->iv, ivlen);
+}
+// A length read from the buffer's own bytes is not the buffer's state.
+void copy_decoded(unsigned char *out, TLS_BUFFER *wb) {
+  size_t n = wb->buf[0];
+  // ruleid: raptor-copy-ignores-source-size
+  memcpy(out, wb->buf + 1, n);
+}
+// The same, with the object reached through a local (OpenSSL
+// tls_retry_write_records(): thiswb = &rl->wbuf[rl->nextwbuf]).
+typedef struct { TLS_BUFFER wbuf[4]; size_t nextwbuf; } RECORD_LAYER;
+void move_unsent_rl(unsigned char *buf, RECORD_LAYER *rl) {
+  TLS_BUFFER *thiswb = &rl->wbuf[rl->nextwbuf];
+  size_t left = thiswb->left;
+  // ok: raptor-copy-ignores-source-size
+  memcpy(buf, thiswb->buf + thiswb->offset, left);
+}

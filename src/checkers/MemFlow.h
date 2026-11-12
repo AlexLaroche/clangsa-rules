@@ -7,8 +7,10 @@
 #include "Common.h"
 #include "clang/Analysis/CFG.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include <functional>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -203,6 +205,12 @@ inline const clang::Expr *releasedArg(const clang::CallExpr *CE, int Depth = 2,
           return nullptr;
       }
   return onlyPointer([&](const Expr *A) {
+    // A type method handed the typed object (OpenSSL `ameth->pkey_free(x)`,
+    // `ctx->prefix_free(b, &ctx->ex_buf, ...)`) releases what the object
+    // holds; allocator hooks take untyped memory (void *, char *).
+    QualType PT = A->IgnoreParenImpCasts()->getType()->getPointeeType();
+    if (!PT.isNull() && PT->isRecordType())
+      return true;
     if (Base.empty())
       return false;
     std::string K = keyOf(A);
@@ -253,11 +261,12 @@ inline std::string movedKey(const clang::Stmt *S) {
 inline void eraseFrom(KeySet &Set, const std::string &K) {
   for (auto It = Set.begin(); It != Set.end();) {
     llvm::StringRef X(*It);
-    // Markers: "?K" (maybe freed), "@K#..." (release site of K).
+    // Markers: "?K" (maybe freed), "@K#..." (release site of K), "+K" (one
+    // more reference held).
     if (X.consume_front("@"))
       X = X.take_until([](char C) { return C == '#'; });
-    else
-      X.consume_front("?");
+    else if (!X.consume_front("?"))
+      X.consume_front("+");
     bool Derived = X == K;
     for (const char *Sep : {"->", ".", "["})
       Derived |= X.starts_with(K + Sep);
@@ -512,9 +521,20 @@ inline void trackFreesWith(const clang::Stmt *S, KeySet &Freed, bool Named) {
         }
       }
   }
+  // `EVP_PKEY_up_ref(p)`, `Py_INCREF`-style `x_incref(p)`, `CFRetain(p)`,
+  // `p->AddRef()`: one more release of p is the owner's, not a second one.
+  if (const auto *CE = dyn_cast<CallExpr>(S); CE && CE->getNumArgs() >= 1) {
+    llvm::StringRef N = raptor::calleeName(CE);
+    if (N.ends_with_insensitive("up_ref") || N.ends_with_insensitive("incref") ||
+        N.ends_with_insensitive("retain") || N.ends_with_insensitive("addref"))
+      if (std::string K = keyOf(CE->getArg(0)); !K.empty())
+        Freed.insert("+" + K);
+  }
   if (const auto *CE = dyn_cast<CallExpr>(S))
     if (const Expr *P = releasedArg(CE, 2, Named)) {
       std::string K = keyOf(P);
+      if (!K.empty() && Freed.erase("+" + K))
+        return;
       if (!K.empty()) {
         Freed.insert(K);
         Freed.insert(releaseSite(K, CE));
@@ -568,31 +588,202 @@ inline bool onlyRetry(const KeySet &Freed, const std::string &K,
 
 using Transfer = std::function<void(const clang::Stmt *, KeySet &)>;
 
+// What a branch condition says about a tracked expression: `p`, `!p`,
+// `p == NULL`, `p != 0`, ... give the key of p and whether the true edge
+// means p is non-null (non-zero). Returns "" for other conditions.
+inline std::string branchFact(const clang::Expr *C, bool &TrueMeansSet) {
+  using namespace clang;
+  TrueMeansSet = true;
+  for (;;) {
+    if (!C)
+      return "";
+    C = C->IgnoreParenImpCasts();
+    if (const auto *UO = dyn_cast<UnaryOperator>(C);
+        UO && UO->getOpcode() == UO_LNot) {
+      TrueMeansSet = !TrueMeansSet;
+      C = UO->getSubExpr();
+      continue;
+    }
+    if (const auto *BO = dyn_cast<BinaryOperator>(C);
+        BO && (BO->getOpcode() == BO_EQ || BO->getOpcode() == BO_NE)) {
+      auto isZero = [](const Expr *E) {
+        E = E->IgnoreParenCasts();
+        if (const auto *IL = dyn_cast<IntegerLiteral>(E))
+          return IL->getValue() == 0;
+        return isa<GNUNullExpr>(E) || isa<CXXNullPtrLiteralExpr>(E);
+      };
+      const Expr *X = isZero(BO->getRHS())   ? BO->getLHS()
+                      : isZero(BO->getLHS()) ? BO->getRHS()
+                                             : nullptr;
+      if (!X)
+        return "";
+      if (BO->getOpcode() == BO_EQ)
+        TrueMeansSet = !TrueMeansSet;
+      C = X;
+      continue;
+    }
+    if (!C->getType()->isScalarType())
+      return "";
+    return keyOf(C);
+  }
+}
+
 // Forward "may" dataflow over the CFG (union at joins). Returns the set of
 // keys holding at the entry of each block; the caller replays the blocks
 // with these sets to emit reports.
+// Paths are kept apart by what their branch conditions said about tested
+// expressions (`if (x) a = ...; if (!x) a = ...;` sets a on every path:
+// OpenSSL OSSL_STORE_load()), and an edge that contradicts what its path
+// already knows is not taken. A fact is forgotten when its expression (or
+// what it is reached through) is assigned or handed to a call by address,
+// and a call forgets every fact but those on local variables.
 inline llvm::DenseMap<const clang::CFGBlock *, KeySet>
 solveForward(const clang::CFG &G, const Transfer &T) {
-  llvm::DenseMap<const clang::CFGBlock *, KeySet> In, Out;
-  llvm::SmallVector<const clang::CFGBlock *, 32> Work;
-  for (const clang::CFGBlock *B : G)
-    Work.push_back(B);
-  while (!Work.empty()) {
-    const clang::CFGBlock *B = Work.pop_back_val();
-    KeySet S;
-    for (const clang::CFGBlock *P : B->preds())
-      if (P)
-        S.insert(Out[P].begin(), Out[P].end());
-    In[B] = S;
-    for (const clang::CFGElement &E : *B)
-      if (auto CS = E.getAs<clang::CFGStmt>())
-        T(CS->getStmt(), S);
-    if (S != Out[B]) {
-      Out[B] = S;
-      for (const clang::CFGBlock *Succ : B->succs())
-        if (Succ)
-          Work.push_back(Succ);
+  using namespace clang;
+  using Facts = std::map<std::string, bool>;
+  // Per block: the key sets of its paths, by what they know.
+  using States = std::map<Facts, KeySet>;
+  const size_t Cap = 8;
+  // Only an expression tested twice can make a later edge contradict an
+  // earlier one: facts on the others would only split paths.
+  std::map<std::string, unsigned> Tested;
+  for (const CFGBlock *B : G) {
+    bool TM;
+    if (B && B->succ_size() == 2)
+      if (std::string K = branchFact(B->getLastCondition(), TM); !K.empty())
+        ++Tested[K];
+  }
+  llvm::DenseMap<const CFGBlock *, States> InS;
+  llvm::DenseMap<const CFGBlock *, KeySet> In;
+  auto forget = [](Facts &F, const std::string &K) {
+    for (auto It = F.begin(); It != F.end();) {
+      llvm::StringRef X(It->first);
+      bool D = X == K || X.starts_with(K + "->") || X.starts_with(K + ".") ||
+               X.starts_with(K + "[");
+      for (llvm::StringRef Y = X; !D && Y.consume_front("*");)
+        D = Y == K || Y.starts_with(K + "->") || Y.starts_with(K + ".");
+      It = D ? F.erase(It) : std::next(It);
     }
+  };
+  std::function<bool(const Expr *)> isLocal = [&](const Expr *E) {
+    const auto *D = dyn_cast_or_null<DeclRefExpr>(raptor::strip(E));
+    const auto *V = D ? dyn_cast<VarDecl>(D->getDecl()) : nullptr;
+    return V && V->hasLocalStorage();
+  };
+  auto updateFacts = [&](const Stmt *S, Facts &F) {
+    if (F.empty())
+      return;
+    if (std::string K = movedKey(S); !K.empty())
+      forget(F, K);
+    if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->isAssignmentOp())
+      if (!isLocal(BO->getLHS()))
+        // `*p = ...`, `s->f = ...` through an alias: keep only locals.
+        for (auto It = F.begin(); It != F.end();)
+          It = It->first.find_first_of("-.*[") != std::string::npos
+                   ? F.erase(It)
+                   : std::next(It);
+    if (const auto *CE = dyn_cast<CallExpr>(S)) {
+      for (const Expr *A : CE->arguments())
+        if (const auto *UO = dyn_cast<UnaryOperator>(raptor::strip(A));
+            UO && UO->getOpcode() == UO_AddrOf)
+          if (std::string K = keyOf(UO->getSubExpr()); !K.empty())
+            forget(F, K);
+      for (auto It = F.begin(); It != F.end();)
+        It = It->first.find_first_of("-.*[") != std::string::npos
+                 ? F.erase(It)
+                 : std::next(It);
+    }
+  };
+  // Add the paths of Add to Into; true when Into grew.
+  // A block that once had too many paths keeps a single one for good, knowing
+  // only what they all know: keys only grow and facts only shrink, so the
+  // walk ends (re-splitting it oscillated on OpenSSL s_server_main()).
+  llvm::DenseSet<const CFGBlock *> Collapsed;
+  auto collapse = [](const States &All) {
+    Facts Common = All.begin()->first;
+    KeySet Keys;
+    for (const auto &[F, S] : All) {
+      for (auto It = Common.begin(); It != Common.end();) {
+        auto J = F.find(It->first);
+        It = J == F.end() || J->second != It->second ? Common.erase(It)
+                                                     : std::next(It);
+      }
+      Keys.insert(S.begin(), S.end());
+    }
+    States R;
+    R[Common] = std::move(Keys);
+    return R;
+  };
+  // Add the paths of Add to the entry of B; true when it changed.
+  auto merge = [&](const CFGBlock *B, const States &Add) {
+    States &Into = InS[B];
+    States Before = Into;
+    for (const auto &[F, S] : Add)
+      Into[F].insert(S.begin(), S.end());
+    if (Collapsed.count(B) || Into.size() > Cap) {
+      Collapsed.insert(B);
+      Into = collapse(Into);
+    }
+    return Into != Before;
+  };
+  llvm::DenseMap<const CFGBlock *, unsigned> Visits;
+  llvm::SmallVector<const CFGBlock *, 32> Work;
+  const CFGBlock *Entry = &G.getEntry();
+  InS[Entry][Facts()];
+  Work.push_back(Entry);
+  while (!Work.empty()) {
+    const CFGBlock *B = Work.pop_back_val();
+    States Out;
+    for (const auto &[F0, S0] : InS[B]) {
+      Facts F = F0;
+      KeySet S = S0;
+      for (const CFGElement &E : *B)
+        if (auto CS = E.getAs<CFGStmt>()) {
+          T(CS->getStmt(), S);
+          updateFacts(CS->getStmt(), F);
+        }
+      // Nothing tracked on this path: what it knows cannot matter.
+      Out[S.empty() ? Facts() : F].insert(S.begin(), S.end());
+    }
+    bool TM = true;
+    std::string K;
+    if (B->succ_size() == 2)
+      K = branchFact(B->getLastCondition(), TM);
+    if (!K.empty() && Tested[K] < 2)
+      K.clear();
+    unsigned I = 0;
+    for (const CFGBlock *Succ : B->succs()) {
+      bool Edge = I++ == 0 ? TM : !TM; // succ 0: condition true
+      if (!Succ)
+        continue;
+      States Pass;
+      for (const auto &[F, S] : Out) {
+        if (K.empty()) {
+          Pass[F].insert(S.begin(), S.end());
+          continue;
+        }
+        auto It = F.find(K);
+        if (It != F.end() && It->second != Edge)
+          continue; // this path already knows the opposite
+        if (S.empty()) {
+          Pass[F];
+          continue;
+        }
+        Facts G2 = F;
+        G2[K] = Edge;
+        Pass[G2].insert(S.begin(), S.end());
+      }
+      // A block whose path set keeps changing (loops growing facts) is
+      // bounded by Cap; merge() is monotone after that.
+      if ((merge(Succ, Pass) || !Visits.count(Succ)) &&
+          ++Visits[Succ] < 10000)
+        Work.push_back(Succ);
+    }
+  }
+  for (const CFGBlock *B : G) {
+    KeySet &S = In[B];
+    for (const auto &[F, KS] : InS[B])
+      S.insert(KS.begin(), KS.end());
   }
   return In;
 }

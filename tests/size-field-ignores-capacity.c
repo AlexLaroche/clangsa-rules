@@ -355,3 +355,20 @@ void extract(Rbsp *rbsp, H2645Nal *nal, const unsigned char *src, unsigned lengt
 	// ok: raptor-size-field-ignores-capacity
 	nal->size = di;
 }
+// The capacity is tested for equality with the size's source (OpenSSL
+// aes_cbc_hmac_sha: `if (p.enc->data_size != p.enc_in->data_size) return 0;
+// ... mb_param.out = p.enc->data; mb_param.len = p.enc_in->data_size;`).
+typedef struct { void *data; unsigned long data_size; } Param;
+typedef struct { unsigned char *out; const unsigned char *inp; unsigned long len; } MbParam;
+int mb_encrypt(MbParam *mb);
+int multiblock(Param *enc, Param *enc_in)
+{
+	MbParam mb;
+	if (enc->data_size != enc_in->data_size)
+		return 0;
+	mb.out = enc->data;
+	mb.inp = enc_in->data;
+	// ok: raptor-size-field-ignores-capacity
+	mb.len = enc_in->data_size;
+	return mb_encrypt(&mb);
+}

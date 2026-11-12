@@ -133,6 +133,92 @@ public:
       for (const std::string &K : Slice)
         if (Sizes.count(K))
           return;
+      std::string Base = raptor_mem::keyOf(Src->getBase());
+      // A local set only from constants (`size_t ivlen = TDES_IVLEN;`), or
+      // only from fields of the source's own object (`left = wb->left;`
+      // then `wb->buf + wb->offset`): a constant, or that buffer's state.
+      {
+        bool AllConst = true, OwnState = true, AnyField = false;
+        // Where the base pointer itself came from (`thiswb =
+        // &rl->wbuf[rl->nextwbuf]`) is not part of the length.
+        Keys Own = slice(Len, Defs, localVar(Src->getBase()));
+        for (const std::string &K : Own) {
+          llvm::StringRef KR(K);
+          bool Local = false;
+          for (const auto &KV : Defs)
+            if (KV.first->getNameAsString() == K) {
+              Local = true;
+              for (const Expr *Dv : KV.second)
+                AllConst &= !Dv->isValueDependent() && Dv->isIntegerConstantExpr(Ctx);
+            }
+          if (Local)
+            continue;
+          AllConst = false;
+          // Not the buffer itself: a length decoded from its bytes
+          // (`len = e->data[0]`) is what this checker looks for.
+          std::string SrcKey = raptor_mem::keyOf(Src);
+          bool InBuf = KR == SrcKey || KR.starts_with(SrcKey + "[") ||
+                       KR.starts_with("*" + SrcKey);
+          bool Own = !Base.empty() && !InBuf &&
+                     (KR == Base || KR.starts_with(Base + "->") ||
+                      KR.starts_with(Base + "."));
+          AnyField |= Own && KR != Base;
+          OwnState &= Own;
+        }
+        if (AllConst && !Own.empty())
+          return;
+        if (OwnState && AnyField)
+          return;
+      }
+      // The length is filled by a call handed something bound to the source
+      // object (`WPACKET_init(&pkt, buf_mem)` then `WPACKET_get_length(&pkt,
+      // &len)`; marshal_validation_token(), ECH transcripts).
+      if (!Base.empty()) {
+        std::vector<const CallExpr *> Calls;
+        walk(Body, [&](const Stmt *X) {
+          if (const auto *C = dyn_cast<CallExpr>(X))
+            Calls.push_back(C);
+        });
+        auto argKey = [](const Expr *A) {
+          A = raptor::strip(A);
+          if (const auto *U = dyn_cast<UnaryOperator>(A); U && U->getOpcode() == UO_AddrOf)
+            A = U->getSubExpr();
+          return raptor_mem::keyOf(A);
+        };
+        Keys Bound{Base};
+        for (bool Changed = true; Changed;) {
+          Changed = false;
+          for (const CallExpr *C : Calls) {
+            bool Has = false;
+            for (const Expr *A : C->arguments())
+              Has |= Bound.count(argKey(A)) > 0;
+            if (Has)
+              for (const Expr *A : C->arguments()) {
+                // Only objects handed by address or pointer can be bound.
+                QualType T = raptor::strip(A)->getType();
+                std::string K = argKey(A);
+                if (!K.empty() && !Slice.count(K) && T->isPointerType() &&
+                    Bound.insert(K).second)
+                  Changed = true;
+              }
+          }
+        }
+        for (const CallExpr *C : Calls) {
+          bool Fills = false, FromSrc = false;
+          for (const Expr *A : C->arguments()) {
+            std::string K = argKey(A);
+            if (K.empty())
+              continue;
+            bool Out = raptor::strip(A)->getType()->isPointerType();
+            if (Out && Slice.count(K) && !Bound.count(K))
+              Fills = true;
+            else if (Bound.count(K))
+              FromSrc = true;
+          }
+          if (Fills && FromSrc)
+            return;
+        }
+      }
       for (const BinaryOperator *C : Compares)
         if (raptor_mem::findKey(C, Sizes) && raptor_mem::findKey(C, Slice))
           return;
@@ -198,9 +284,12 @@ private:
   }
 
   // Keys used by E, followed back through the definitions of locals.
-  static Keys slice(const Expr *E, const DefMap &Defs) {
+  // Skip: a local whose definitions are not followed (the source's base).
+  static Keys slice(const Expr *E, const DefMap &Defs, const VarDecl *Skip = nullptr) {
     Keys Out;
     llvm::SmallPtrSet<const VarDecl *, 16> Done;
+    if (Skip)
+      Done.insert(Skip);
     std::vector<const Expr *> Work{E};
     while (!Work.empty()) {
       const Expr *X = Work.back();
