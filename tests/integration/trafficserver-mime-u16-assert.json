@@ -18,6 +18,11 @@
     [
       "touch",
       "build-raptor/stub/tscore/ink_config.h"
+    ],
+    [
+      "sh",
+      "-c",
+      "printf 'typedef struct real_pcre pcre;\\ntypedef struct pcre_extra pcre_extra;\\n' > build-raptor/stub/pcre.h"
     ]
   ],
   "checker": "raptor.AssertOnlyBound",

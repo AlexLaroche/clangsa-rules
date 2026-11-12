@@ -35,7 +35,7 @@ jobs:
             ninja-build uuid-dev libssl-dev zlib1g-dev gcc-multilib \
             libgnutls28-dev libboost-all-dev libevent-dev libpam0g-dev nasm \
             libapr1-dev libaprutil1-dev libopenjp2-7-dev libpcre2-dev \
-            x11proto-dev libpixman-1-dev libxkbfile-dev libpcre3-dev libglib2.0-dev \
+            x11proto-dev libpixman-1-dev libxkbfile-dev libglib2.0-dev \
             libimath-dev libnghttp2-dev autoconf automake
           echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
 
