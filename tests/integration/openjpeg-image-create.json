@@ -11,7 +11,8 @@
       "-S",
       ".",
       "-B",
-      "build-raptor"
+      "build-raptor",
+      "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
     ]
   ],
   "checker": "raptor.UncheckedAllocProduct",

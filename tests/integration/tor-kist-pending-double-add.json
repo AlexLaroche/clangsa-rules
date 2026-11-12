@@ -15,7 +15,8 @@
       "./configure",
       "--disable-asciidoc",
       "--disable-unittests",
-      "--disable-system-torrc"
+      "--disable-system-torrc",
+      "CFLAGS=-Wno-error=implicit-function-declaration"
     ]
   ],
   "checker": "raptor.DuplicateContainerInsert",
