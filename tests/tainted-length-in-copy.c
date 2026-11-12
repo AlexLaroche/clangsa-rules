@@ -254,3 +254,16 @@ int parse_rdata_unchecked(unsigned char *out, const unsigned char **cp)
 	memcpy(out, *cp, n);
 	return 0;
 }
+
+// A comparison of two pointers: their symbols are locations, not lengths
+// (nonloc::SymbolVal on them aborted assertion-enabled clang, OpenSSL
+// crypto/asn1/a_int.c `if (ret != ai)`).
+int pointer_compare(unsigned char *out, const unsigned char *in, int *ret,
+		    int *ai)
+{
+	if (ret != ai)
+		return 1;
+	// ok: raptor-tainted-length-in-copy
+	memcpy(out, in, 4);
+	return 0;
+}

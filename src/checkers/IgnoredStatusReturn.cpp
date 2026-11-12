@@ -124,7 +124,7 @@ const VarDecl *statusVariable(const Expr *V, const FunctionDecl *Def, ASTContext
   for (const Expr *E : Values) {
     Expr::EvalResult ER;
     if (!E->isValueDependent() && E->EvaluateAsInt(ER, Ctx))
-      Constants.insert(ER.Val.getInt().getExtValue());
+      Constants.insert(raptor::toInt64(ER.Val.getInt()));
     else if (!isStatusFunction(calledFunction(E), Ctx, Cache))
       return nullptr;
   }
@@ -153,7 +153,7 @@ bool isStatusFunction(const FunctionDecl *FD, ASTContext &Ctx, StatusCache &Cach
     }
     Expr::EvalResult ER;
     if (!V->isValueDependent() && V->EvaluateAsInt(ER, Ctx)) {
-      Constants.insert(ER.Val.getInt().getExtValue());
+      Constants.insert(raptor::toInt64(ER.Val.getInt()));
       continue;
     }
     if (isStatusFunction(calledFunction(V), Ctx, Cache)) {
@@ -347,7 +347,7 @@ std::optional<int64_t> evalAt(const Expr *E, const CallExpr *CE, const FunctionD
   E = E->IgnoreParenCasts();
   Expr::EvalResult ER;
   if (!E->isValueDependent() && E->EvaluateAsInt(ER, Ctx))
-    return ER.Val.getInt().getExtValue();
+    return raptor::toInt64(ER.Val.getInt());
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     const auto *P = dyn_cast<ParmVarDecl>(DRE->getDecl());
     if (!P || P->getDeclContext() != Def)
@@ -355,7 +355,7 @@ std::optional<int64_t> evalAt(const Expr *E, const CallExpr *CE, const FunctionD
     unsigned I = P->getFunctionScopeIndex();
     const Expr *A = I < CE->getNumArgs() ? CE->getArg(I) : nullptr;
     if (A && !A->isValueDependent() && A->EvaluateAsInt(ER, Ctx))
-      return ER.Val.getInt().getExtValue();
+      return raptor::toInt64(ER.Val.getInt());
     return std::nullopt;
   }
   if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
@@ -460,7 +460,7 @@ bool canFailAt(const CallExpr *CE, const FunctionDecl *Def, ASTContext &Ctx) {
     Expr::EvalResult ER;
     if (V->isValueDependent() || !V->EvaluateAsInt(ER, Ctx))
       return true;
-    Values.insert(ER.Val.getInt().getExtValue());
+    Values.insert(raptor::toInt64(ER.Val.getInt()));
   }
   return Values.size() > 1;
 }

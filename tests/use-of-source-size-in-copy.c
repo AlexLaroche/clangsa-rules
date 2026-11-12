@@ -1452,3 +1452,21 @@ int export_wrong_check(const struct mlkey *key, unsigned char *pbDst, size_t cbD
 	memcpy(pbDst, key->seed, sizeof(key->seed));
 	return (int)cbDst;
 }
+
+// The filling call goes through a function pointer: it has no callee
+// declaration (crashed on OpenSSL ssl/statem/statem_srvr.c, whose
+// extension callbacks are called this way).
+int (*str_until_fp[2])(const char **p, struct Curl_str *out, size_t max,
+		       char delim);
+int option_fp(const char *p)
+{
+	struct Curl_str out;
+	if (!str_until_fp[0](&p, &out, 64, '=')) {
+		char tempword[64 + 1];
+		// ok: raptor-use-of-source-size-in-copy
+		memcpy(tempword, out.str, out.len);
+		tempword[out.len] = 0;
+		return tempword[0];
+	}
+	return 0;
+}

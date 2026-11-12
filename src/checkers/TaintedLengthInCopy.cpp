@@ -225,7 +225,11 @@ class TaintedLengthInCopyChecker
     // Distinct decoded values: `n + (n & 1)` (rounding n up) is one value.
     llvm::SmallPtrSet<SymbolRef, 4> Unchecked;
     for (SymbolRef Op : Ops)
-      if (SymbolRef S = unchecked(State, nonloc::SymbolVal(Op)).first)
+      // a pointer symbol (`ret != ai`) is a location, not a length, and
+      // nonloc::SymbolVal asserts on it
+      if (Loc::isLocType(Op->getType()))
+        continue;
+      else if (SymbolRef S = unchecked(State, nonloc::SymbolVal(Op)).first)
         Unchecked.insert(S);
     return Unchecked.size() >= 2;
   }

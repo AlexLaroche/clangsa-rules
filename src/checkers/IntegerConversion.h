@@ -201,7 +201,7 @@ inline std::optional<unsigned> valueBits(ASTContext &C, const Expr *E, const Stm
       return Cap(L && Rb ? std::optional<unsigned>(std::max(*L, *Rb)) : std::nullopt);
     case BO_Rem:
       if (Rb && BO->getLHS()->getType()->isUnsignedIntegerType() &&
-          BO->getRHS()->EvaluateAsInt(R, C) && R.Val.getInt().getExtValue() > 0)
+          BO->getRHS()->EvaluateAsInt(R, C) && raptor::toInt64(R.Val.getInt()) > 0)
         return Cap((R.Val.getInt() - 1).getActiveBits());
       return Cap(std::nullopt);
     case BO_Shr:

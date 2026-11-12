@@ -27,10 +27,10 @@ bool coversEnum(const SwitchStmt *SW) {
       Expr::EvalResult R;
       if (CS->getRHS() || !CS->getLHS()->EvaluateAsInt(R, ED->getASTContext()))
         return false; // ranges: keep it simple
-      Cases.insert(R.Val.getInt().getExtValue());
+      Cases.insert(raptor::toInt64(R.Val.getInt()));
     }
   for (const EnumConstantDecl *EC : ED->enumerators())
-    if (!Cases.count(EC->getInitVal().getExtValue()))
+    if (!Cases.count(raptor::toInt64(EC->getInitVal())))
       return false;
   return true;
 }

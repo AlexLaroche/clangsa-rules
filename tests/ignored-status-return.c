@@ -426,3 +426,17 @@ int set_value(const unsigned char *in, size_t n, int type) {
   blob_size(type, &cb);
   return n == cb ? in[0] : -1;
 }
+
+// A status-like function whose constant does not fit int64 (OpenSSL
+// crypto/bn/bn_word.c `return (BN_ULONG)-1;`): APSInt::getExtValue()
+// aborted assertion-enabled clang.
+unsigned long long word_mod(unsigned long long a, unsigned long long w)
+{
+	if (w == 0)
+		return 0xffffffffffffffffULL;
+	return a % w;
+}
+unsigned long long use_word_mod(unsigned long long a)
+{
+	return word_mod(a, 3);
+}

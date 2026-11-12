@@ -304,7 +304,8 @@ void tests(const Expr *Cond, bool True,
 // Is T bounded from above where Call runs: `if (T > X ...) exit;` before
 // it, `if (T < X)` around it, or a min()/?: in the length itself?
 bool boundedAbove(const Stmt *Body, const CallExpr *Call, const Expr *Len,
-                  const Expr *T, const SourceManager &SM) {
+                  const Expr *T, const ASTContext &Ctx) {
+  const SourceManager &SM = Ctx.getSourceManager();
   bool B = false;
   forEach<Stmt>(Len, [&](const Stmt *X) {
     if (isa<ConditionalOperator>(X))
@@ -337,7 +338,9 @@ bool boundedAbove(const Stmt *Body, const CallExpr *Call, const Expr *Len,
         if (sameExpr(X, Obj) && X->getType()->isPointerType())
           Fills = true;
         Limit |= !X->isValueDependent() && X->getType()->isIntegerType() &&
-                 X->isIntegerConstantExpr(C->getCalleeDecl()->getASTContext());
+                 // not the callee's context: a call through `tab[i](...)`
+                 // has no callee declaration
+                 X->isIntegerConstantExpr(Ctx);
       }
       B = Fills && Limit;
     });
@@ -476,7 +479,7 @@ public:
                  !declaredWithSize(Dst, Len, Ctx)) ||
                 (containsExpr(Len, Src) && !sameObjectSize(Dst, Len, Ctx) &&
                  !(fixedCapacity(Dst) &&
-                   boundedAbove(Body, CE, Len, Len, Ctx.getSourceManager())));
+                   boundedAbove(Body, CE, Len, Len, Ctx)));
           Bad = Bad && !allocatedFor(Body, CE, Dst, Len, Ctx);
           // A constant length that the destination can hold, or a
           // destination whose size the caller passed and the code checked.
@@ -491,7 +494,7 @@ public:
             }
           if (!Bad && fixedCapacity(Dst))
             if (const Expr *T = sourceLength(Src, Len))
-              Bad = !boundedAbove(Body, CE, Len, T, Ctx.getSourceManager());
+              Bad = !boundedAbove(Body, CE, Len, T, Ctx);
         }
       } else if (isPrintfFunction(N) && CE->getNumArgs() >= 3) {
         for (unsigned I = 2; I < CE->getNumArgs() && !Bad; ++I)

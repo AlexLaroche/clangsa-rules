@@ -59,6 +59,10 @@ bool linear(const Expr *E, int Sign, Linear &L, const ASTContext &Ctx) {
   E = stripCasts(E);
   if (!E->isValueDependent())
     if (std::optional<llvm::APSInt> V = E->getIntegerConstantExpr(Ctx)) {
+      // e.g. 0xffffffffffffffffULL: out of the int64 model (getExtValue
+      // asserts)
+      if (!V->isRepresentableByInt64())
+        return false;
       L.K += Sign * V->getExtValue();
       return true;
     }

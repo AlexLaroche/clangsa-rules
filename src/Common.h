@@ -9,10 +9,21 @@
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
+#include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/StringRef.h"
+#include <cstdint>
 #include <initializer_list>
 
 namespace raptor {
+
+// V as int64_t, saturated: APSInt::getExtValue() asserts on values beyond
+// int64 (`return (BN_ULONG)-1;`, 0xffffffffffffffffULL), which aborts
+// assertion-enabled clang (the apt.llvm.org nightlies).
+inline int64_t toInt64(const llvm::APSInt &V) {
+  if (V.isRepresentableByInt64())
+    return V.getExtValue();
+  return V.isNegative() ? INT64_MIN : INT64_MAX;
+}
 
 inline constexpr const char *Category = "Security (raptor)";
 

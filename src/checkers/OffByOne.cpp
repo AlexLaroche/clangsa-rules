@@ -44,7 +44,7 @@ bool testsNonEmpty(const Expr *Cond, const ASTContext &Ctx,
     Expr::EvalResult R;
     if (E->isValueDependent() || !E->EvaluateAsInt(R, Ctx))
       return false;
-    V = R.Val.getInt().getExtValue();
+    V = raptor::toInt64(R.Val.getInt());
     return true;
   };
   int64_t V;
@@ -67,7 +67,7 @@ bool constInt(const Expr *E, const ASTContext &Ctx, int64_t &V) {
   Expr::EvalResult R;
   if (E->isValueDependent() || !E->EvaluateAsInt(R, Ctx))
     return false;
-  V = R.Val.getInt().getExtValue();
+  V = raptor::toInt64(R.Val.getInt());
   return true;
 }
 

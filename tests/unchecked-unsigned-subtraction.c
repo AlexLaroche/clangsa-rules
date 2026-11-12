@@ -167,3 +167,13 @@ int frame_rate_bad(unsigned idx, const int *a, const int *b)
 		// ruleid: raptor-unchecked-unsigned-subtraction
 		return b[idx - 10];
 }
+
+// A bound beyond int64 (OpenSSL `len > SIZE_MAX - 8` style checks with
+// unsigned 64-bit constants): APSInt::getExtValue() aborted on it.
+size_t huge_bound(size_t len)
+{
+	if (len < 0xffffffffffffffffULL - 1)
+		return 0;
+	// ok: raptor-unchecked-unsigned-subtraction
+	return len - 2;
+}
