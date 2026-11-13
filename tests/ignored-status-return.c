@@ -440,3 +440,98 @@ unsigned long long use_word_mod(unsigned long long a)
 {
 	return word_mod(a, 3);
 }
+
+// google/brotli dec/decode.c SaveErrorCode: records the error and returns a
+// translation of its own argument (a switch on the parameter). The caller
+// knows the result already; dropping it loses nothing.
+enum dec_result { RES_ERROR, RES_SUCCESS, RES_NEEDS_INPUT };
+struct dec_state { int error_code; };
+static enum dec_result save_error_code(struct dec_state *s, int e) {
+  s->error_code = e;
+  switch (e) {
+  case 0: return RES_SUCCESS;
+  case 1: return RES_NEEDS_INPUT;
+  default: return RES_ERROR;
+  }
+}
+enum dec_result dec_stream(struct dec_state *s, int code) {
+  return save_error_code(s, code);
+}
+enum dec_result dec_stream2(struct dec_state *s, int code) {
+  if (code > 0)
+    return save_error_code(s, code);
+  return RES_SUCCESS;
+}
+void dec_take_output(struct dec_state *s, int status) {
+  // ok: raptor-ignored-status-return
+  if (status < 0) save_error_code(s, status);
+}
+
+// google/brotli enc/encode.c UpdateLastProcessedPos: the result says "the
+// position wrapped", and callers use it to trigger optional work, not to
+// handle a failure. Tests that do not leave or record an error are not checks.
+struct enc_state { unsigned last, input; int hasher; };
+static int update_last_pos(struct enc_state *s) {
+  int wrapped = s->input < s->last;
+  s->last = s->input;
+  return wrapped;
+}
+static void HasherReset(struct enc_state *s) { s->hasher = 0; }
+void enc_merge(struct enc_state *s) {
+  if (update_last_pos(s)) {
+    HasherReset(s);
+  }
+}
+void enc_flush(struct enc_state *s) {
+  if (update_last_pos(s))
+    HasherReset(s);
+}
+void enc_fast(struct enc_state *s) {
+  // ok: raptor-ignored-status-return
+  update_last_pos(s);
+}
+
+// google/brotli dec/decode.c BrotliCopyPreloadedSymbolsToU8 returns a count.
+// The other caller stores it in a variable that conditions test only before
+// the assignment, then does arithmetic with it: not a check.
+static int copy_symbols(unsigned char *dst, int pos, int limit, int avail) {
+  int copies = limit < avail ? limit : avail;
+  int k;
+  for (k = 0; k < copies; k++) dst[pos + k] = 0;
+  return copies;
+}
+void copy_run(unsigned char *dst, int pos, int i, int avail) {
+  int num_steps = i - 1;
+  if (num_steps > avail)
+    num_steps = avail;
+  num_steps = copy_symbols(dst, pos, num_steps, avail);
+  pos += num_steps;
+  i -= num_steps;
+  do {
+    // ok: raptor-ignored-status-return
+    copy_symbols(dst, pos, 1, avail);
+    ++pos;
+  } while (--i != 0);
+}
+
+// OpenSSL crypto/err/err.c err_set_error_data_int: the other caller frees the
+// data when the call fails; freeing on failure is handling it.
+struct err_state { char *data; };
+struct err_state *get_err_state(int create);
+void OPENSSL_free(void *p);
+static int set_error_data_int(char *data, int deallocate) {
+  struct err_state *es = get_err_state(1);
+  if (es == 0)
+    return 0;
+  if (deallocate) OPENSSL_free(es->data);
+  es->data = data;
+  return 1;
+}
+void set_error_data(char *data) {
+  // ruleid: raptor-ignored-status-return
+  set_error_data_int(data, 1);
+}
+void add_error_vdata(char *str) {
+  if (!set_error_data_int(str, 0))
+    OPENSSL_free(str);
+}

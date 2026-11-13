@@ -82,6 +82,22 @@ class HighEntropyAssignmentChecker
     for (unsigned I = 0, N = SL->getNumConcatenated(); I < N; ++I)
       if (SL->getStrTokenLoc(I).isMacroID())
         return false;
+    // Text with raw control bytes in it (`"\1 \2, \10 of the "`, the
+    // length-prefixed RFC 7932 transform table in google/brotli) is a table of
+    // markers and fragments, not a secret. Random key bytes are half >= 0x80
+    // and mostly unprintable, so a binary key is still checked.
+    StringRef Str = SL->getString();
+    unsigned Ctl = 0, Print = 0, High = 0;
+    for (unsigned char C : Str) {
+      if (C >= 0x80)
+        ++High;
+      else if ((C < 0x20 && C != '\t' && C != '\n' && C != '\r') || C == 0x7f)
+        ++Ctl;
+      else
+        ++Print;
+    }
+    if (Ctl && 4 * High < Str.size() && 2 * Print >= Str.size())
+      return false;
     return Tables.looksSecret(SL->getString());
   }
 

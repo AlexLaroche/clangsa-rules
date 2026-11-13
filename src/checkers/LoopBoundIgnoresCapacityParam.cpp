@@ -13,7 +13,11 @@
 // (`if (B > C) return;`, `if (B <= C) { loop }`), or a clamp (`if (B > C) B =
 // C;`, an assignment of B from an expression with C); read-only buffers; no
 // capacity parameter; a bound that is the buffer's own count parameter
-// (`nmatch` for `pmatch[]`, `nendpoints` for `endpoints`).
+// (`nmatch` for `pmatch[]`, `nendpoints` for `endpoints`); a bound local that
+// only ever holds constants; a counter set to 0 and incremented at most once
+// per iteration of a non-nested loop over C (google/brotli HistogramReindex).
+// A pointer parameter that is subscripted (`count[bits]`) is an array, not a
+// capacity (google/brotli BrotliBuildCodeLengthsHuffmanTable).
 //
 // CVE-2026-25584 (iccDEV CIccTagFloatNum::GetValues), CVE-2026-30987 (iccDEV
 // CIccTagNum::GetValues), CVE-2026-29068 (pjsip opus codec_parse).
@@ -22,6 +26,8 @@
 #include "MemFlow.h"
 #include "Registry.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
+#include <functional>
+#include <map>
 
 using namespace clang;
 using namespace ento;
@@ -103,6 +109,66 @@ const ArraySubscriptExpr *written(const Stmt *S) {
   return dyn_cast<ArraySubscriptExpr>(L);
 }
 
+// Every write to the local V in Body: its initialiser, assignments (RHS, or
+// the operator for compound ones), and ++/-- (the operator). False when its
+// address is taken.
+bool writes(const Stmt *Body, const VarDecl *V, std::vector<const Expr *> &Out) {
+  if (V->getInit())
+    Out.push_back(V->getInit());
+  bool Ok = true;
+  forEach<Stmt>(Body, [&](const Stmt *S) {
+    if (const auto *BO = dyn_cast<BinaryOperator>(S);
+        BO && BO->isAssignmentOp() && refDecl(BO->getLHS()) == V)
+      Out.push_back(BO->getOpcode() == BO_Assign ? BO->getRHS() : BO);
+    else if (const auto *UO = dyn_cast<UnaryOperator>(S);
+             UO && refDecl(UO->getSubExpr()) == V) {
+      if (UO->isIncrementDecrementOp())
+        Out.push_back(UO);
+      else if (UO->getOpcode() == UO_AddrOf)
+        Ok = false;
+    }
+  });
+  return Ok;
+}
+
+bool isIntConst(const Expr *E, const ASTContext &Ctx) {
+  E = E->IgnoreParenImpCasts();
+  return !E->isValueDependent() && E->getType()->isIntegerType() &&
+         E->isIntegerConstantExpr(Ctx);
+}
+
+// The innermost loop around S in Body, if any.
+const Stmt *loopAround(const Stmt *Body, const Stmt *S) {
+  const Stmt *Found = nullptr;
+  std::function<bool(const Stmt *, const Stmt *)> Walk =
+      [&](const Stmt *N, const Stmt *Loop) {
+        if (!N)
+          return false;
+        if (N == S) {
+          Found = Loop;
+          return true;
+        }
+        const Stmt *Next =
+            isa<ForStmt>(N) || isa<WhileStmt>(N) || isa<DoStmt>(N) ? N : Loop;
+        for (const Stmt *C : N->children())
+          if (Walk(C, Next))
+            return true;
+        return false;
+      };
+  Walk(Body, nullptr);
+  return Found;
+}
+
+const Expr *loopCond(const Stmt *L) {
+  if (const auto *F = dyn_cast<ForStmt>(L))
+    return F->getCond();
+  if (const auto *W = dyn_cast<WhileStmt>(L))
+    return W->getCond();
+  if (const auto *D = dyn_cast<DoStmt>(L))
+    return D->getCond();
+  return nullptr;
+}
+
 class LoopBoundIgnoresCapacityParamChecker
     : public Checker<check::ASTCodeBody> {
 public:
@@ -128,6 +194,13 @@ public:
            !T->getPointeeType().isConstQualified()))
         Cap.insert(P);
     }
+    // `count[bits]`: a pointer that is subscripted is an array (a histogram
+    // in google/brotli BrotliBuildCodeLengthsHuffmanTable), not an in/out count.
+    forEach<ArraySubscriptExpr>(Body, [&](const ArraySubscriptExpr *A) {
+      if (const auto *P = dyn_cast_or_null<ParmVarDecl>(refDecl(A->getBase()));
+          P && P->getType()->isPointerType())
+        Cap.erase(P);
+    });
     for (const ValueDecl *C : Cap)
       Out.erase(C);
     if (Out.empty() || Cap.empty())
@@ -189,6 +262,38 @@ public:
         return SM.isBeforeInTranslationUnit(SM.getExpansionLoc(S->getEndLoc()),
                                             At);
       };
+      if (const auto *BV = dyn_cast_or_null<VarDecl>(refDecl(B));
+          BV && BV->hasLocalStorage() && !isa<ParmVarDecl>(BV)) {
+        std::vector<const Expr *> Ws;
+        if (writes(Body, BV, Ws) && !Ws.empty()) {
+          // A local that only ever holds constants (`table_size = 1 << 5;`).
+          if (llvm::all_of(Ws, [&](const Expr *E) { return isIntConst(E, Ctx); }))
+            return;
+          // A counter: set to 0, then incremented at most once per iteration
+          // of a loop over the capacity, so it cannot pass the capacity
+          // (`if (new_index[s] == next) { tmp[next] = ...; ++next; }` in
+          // google/brotli HistogramReindex). The loop must not sit inside
+          // another one, which would run it again.
+          bool Counter = true;
+          std::map<const Stmt *, unsigned> PerLoop;
+          for (const Expr *E : Ws) {
+            Expr::EvalResult ER;
+            if (isIntConst(E, Ctx) && E->EvaluateAsInt(ER, Ctx) &&
+                ER.Val.getInt() == 0)
+              continue;
+            const auto *UO = dyn_cast<UnaryOperator>(E);
+            const Stmt *L = UO && UO->isIncrementOp() ? loopAround(Body, UO) : nullptr;
+            const Expr *LC = L ? loopCond(L) : nullptr;
+            if (!LC || !mentions(LC, Cap) || loopAround(Body, L) ||
+                ++PerLoop[L] > 1) {
+              Counter = false;
+              break;
+            }
+          }
+          if (Counter && !PerLoop.empty())
+            return;
+        }
+      }
       // B set from the capacity (`n = min(n, cap)`, `size_t max = n < *cap ? n
       // : *cap;`).
       if (const auto *BV = dyn_cast_or_null<VarDecl>(refDecl(B)))

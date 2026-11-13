@@ -65,6 +65,30 @@ bool isStrLength(const Expr *E, const ASTContext &Ctx) {
   const auto *FD = dyn_cast_or_null<FunctionDecl>(V->getParentFunctionOrMethod());
   return FD && !written(FD->getBody(), V);
 }
+// A constant: an integer constant expression, or built only from those and
+// const-qualified variables with constant initialisers. C does not make
+// `static const size_t kFileBufferSize = 1 << 19;` an ICE, but it cannot
+// change (google/brotli c/tools/brotli.c `malloc(kFileBufferSize * 2)`).
+bool isConstant(const Expr *E, const ASTContext &Ctx, unsigned Depth = 0) {
+  E = E->IgnoreParenCasts();
+  if (Depth > 8 || E->isValueDependent() || !E->getType()->isIntegerType())
+    return false;
+  if (E->isIntegerConstantExpr(Ctx))
+    return true;
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    const auto *V = dyn_cast<VarDecl>(DRE->getDecl());
+    return V && V->getType().isConstQualified() &&
+           !V->getType().isVolatileQualified() && V->getInit() &&
+           isConstant(V->getInit(), Ctx, Depth + 1);
+  }
+  if (const auto *UO = dyn_cast<UnaryOperator>(E))
+    return !UO->isIncrementDecrementOp() && isConstant(UO->getSubExpr(), Ctx, Depth + 1);
+  if (const auto *BO = dyn_cast<BinaryOperator>(E))
+    return !BO->isAssignmentOp() && BO->getOpcode() != BO_Comma &&
+           isConstant(BO->getLHS(), Ctx, Depth + 1) &&
+           isConstant(BO->getRHS(), Ctx, Depth + 1);
+  return false;
+}
 // A size_t-wide sum of string lengths and integer constants, as in
 // `strlen(a) + strlen(b) + 1` or `plen + slen + 1` with size_t lengths from
 // strlen(): every string lies in memory, so their lengths cannot add up past
@@ -72,7 +96,7 @@ bool isStrLength(const Expr *E, const ASTContext &Ctx) {
 // sum in int, the vulnerable form, is still reported.
 bool strLengthSum(const Expr *E, const ASTContext &Ctx) {
   E = E->IgnoreParenImpCasts();
-  if (E->getType()->isIntegerType() && E->isIntegerConstantExpr(Ctx))
+  if (isConstant(E, Ctx))
     return true;
   const auto *BO = dyn_cast<BinaryOperator>(E);
   if (!BO)
@@ -92,7 +116,8 @@ bool isMulOrAdd(const Expr *E, const ASTContext &Ctx) {
     return false;
   if (BO->getOpcode() == BO_MulAssign || BO->getOpcode() == BO_AddAssign)
     return true;
-  if (!isOneOfOp(BO->getOpcode()) || plusNotSelf(BO, Ctx) || strLengthSum(BO, Ctx))
+  if (!isOneOfOp(BO->getOpcode()) || plusNotSelf(BO, Ctx) || strLengthSum(BO, Ctx) ||
+      isConstant(BO, Ctx))
     return false;
   QualType T = BO->getType();
   // Size arithmetic (size_t) keeps the plain syntactic rule: it wraps on

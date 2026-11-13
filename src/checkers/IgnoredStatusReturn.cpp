@@ -34,6 +34,13 @@
 // negative constant
 // (`exit_zlib(...); break;`, `machine(ERROR); return result;`).
 //
+// A test only counts as a check when the `if` acts on the outcome: leaves,
+// assigns, or calls an error/log function (`if (wrapped(s)) reset(s);` uses a
+// predicate, google/brotli UpdateLastProcessedPos); a result stored in a
+// variable counts when a condition reads the variable after the store.
+// Code translators, whose every `return` is inside one `switch` on a
+// parameter they never write (google/brotli SaveErrorCode), are skipped.
+//
 // A result is discarded when the call is an expression statement (in a
 // block, as an if/loop body, after a label) or the left operand of a comma
 // whose value is itself discarded. `(void)f();` is an explicit opt-out.
@@ -170,6 +177,54 @@ bool isStatusFunction(const FunctionDecl *FD, ASTContext &Ctx, StatusCache &Cach
   return Result;
 }
 
+// Does Def only translate an argument: every return is inside one switch on
+// a parameter that Def never writes? Its result is then known to the
+// caller, which passed the argument (google/brotli SaveErrorCode: store the
+// error code, return `switch (e) { case SUCCESS: return RESULT_SUCCESS; ...
+// default: return RESULT_ERROR; }`). Validation such as `if (n < 4) return
+// -1;` is not a translation: its result tells the caller something new.
+bool isTranslator(const FunctionDecl *Def) {
+  const Stmt *Body = Def->getBody();
+  llvm::SmallVector<const ReturnStmt *, 8> Returns;
+  collectReturns(Body, Returns);
+  if (Returns.size() < 2)
+    return false;
+  ParentMap PM(const_cast<Stmt *>(Body));
+  const SwitchStmt *Sw = nullptr;
+  for (const ReturnStmt *R : Returns) {
+    const SwitchStmt *Mine = nullptr;
+    for (const Stmt *P = PM.getParent(R); P && !Mine; P = PM.getParent(P)) {
+      if (isa<ForStmt>(P) || isa<WhileStmt>(P) || isa<DoStmt>(P))
+        return false;
+      Mine = dyn_cast<SwitchStmt>(P);
+    }
+    if (!Mine || (Sw && Mine != Sw))
+      return false;
+    Sw = Mine;
+  }
+  const auto *DRE = dyn_cast<DeclRefExpr>(raptor::strip(Sw->getCond()));
+  const auto *Param = DRE ? dyn_cast<ParmVarDecl>(DRE->getDecl()) : nullptr;
+  if (!Param)
+    return false;
+  bool Written = false;
+  std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
+    if (!S || Written)
+      return;
+    const Expr *L = nullptr;
+    if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->isAssignmentOp())
+      L = BO->getLHS();
+    else if (const auto *UO = dyn_cast<UnaryOperator>(S);
+             UO && (UO->isIncrementDecrementOp() || UO->getOpcode() == UO_AddrOf))
+      L = UO->getSubExpr();
+    if (const auto *W = L ? dyn_cast<DeclRefExpr>(raptor::strip(L)) : nullptr)
+      Written |= W->getDecl() == Param;
+    for (const Stmt *C : S->children())
+      Walk(C);
+  };
+  Walk(Body);
+  return !Written;
+}
+
 // Is the value of E thrown away by its context?
 bool isDiscarded(const Expr *E, ParentMap &PM) {
   const Stmt *Child = E;
@@ -206,8 +261,80 @@ void findCalls(const Stmt *S, llvm::SmallVectorImpl<const CallExpr *> &Out) {
     findCalls(C, Out);
 }
 
+using CondReads = llvm::DenseMap<const VarDecl *, llvm::SmallVector<SourceLocation, 4>>;
+
+// Does a branch of If act on a failure: leave (return, goto, break,
+// continue, a noreturn call), record it (an assignment), report it (a call
+// named like an error or log function) or undo (free, release, close...)? `if (wrapped(s)) reset(s);`
+// uses a predicate to trigger ordinary work instead (google/brotli
+// UpdateLastProcessedPos).
+bool reacts(const Stmt *S) {
+  if (!S)
+    return false;
+  if (isa<ReturnStmt>(S) || isa<GotoStmt>(S) || isa<BreakStmt>(S) || isa<ContinueStmt>(S) ||
+      isa<CXXThrowExpr>(S))
+    return true;
+  if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->isAssignmentOp())
+    return true;
+  if (const auto *UO = dyn_cast<UnaryOperator>(S); UO && UO->isIncrementDecrementOp())
+    return true;
+  if (const auto *CE = dyn_cast<CallExpr>(S)) {
+    if (const FunctionDecl *FD = CE->getDirectCallee()) {
+      if (FD->isNoReturn())
+        return true;
+      // Whole words of the name (`log_error`, `ReportFailure`), so that
+      // `HasherReset` is not an "err" function.
+      StringRef N = FD->getName();
+      std::string Word;
+      auto isErrorWord = [](StringRef W) {
+        return raptor::isOneOf(W, {"err", "error", "errors", "perror", "fail", "failed",
+                                   "failure", "warn", "warning", "log", "logf", "abort",
+                                   "fatal", "print", "printf", "fprintf", "panic", "assert",
+                                   "exit", "die", "report", "trace", "debug",
+                                   // undoing what the call would have owned
+                                   "free", "release", "destroy", "cleanup", "dispose",
+                                   "unref", "close", "rollback", "undo"});
+      };
+      for (size_t I = 0; I <= N.size(); ++I) {
+        bool End = I == N.size() || N[I] == '_' ||
+                   (I > 0 && isUppercase(N[I]) && isLowercase(N[I - 1]));
+        if (End && !Word.empty()) {
+          if (isErrorWord(Word))
+            return true;
+          Word.clear();
+        }
+        if (I < N.size() && N[I] != '_')
+          Word += toLowercase(N[I]);
+      }
+    }
+  }
+  for (const Stmt *C : S->children())
+    if (reacts(C))
+      return true;
+  return false;
+}
+
+// E is (part of) a condition: if the condition is an if's, the if must act
+// on the outcome.
+bool conditionReacts(const Stmt *E, ParentMap &PM) {
+  const Stmt *Child = E;
+  for (const Stmt *P = PM.getParent(Child); P; Child = P, P = PM.getParent(P)) {
+    if (isa<ParenExpr>(P) || isa<ImplicitCastExpr>(P))
+      continue;
+    if (const auto *UO = dyn_cast<UnaryOperator>(P); UO && UO->getOpcode() == UO_LNot)
+      continue;
+    if (const auto *BO = dyn_cast<BinaryOperator>(P);
+        BO && (BO->isComparisonOp() || BO->isLogicalOp()))
+      continue;
+    if (const auto *If = dyn_cast<IfStmt>(P))
+      return Child != If->getCond() || reacts(If->getThen()) || reacts(If->getElse());
+    return true;
+  }
+  return true;
+}
+
 // Is the value of the call E checked by its context?
-bool isChecked(const Expr *E, ParentMap &PM, const llvm::SmallPtrSetImpl<const VarDecl *> &CondVars) {
+bool isChecked(const Expr *E, ParentMap &PM, const CondReads &CondVars, const SourceManager &SM) {
   const Stmt *Child = E;
   for (const Stmt *P = PM.getParent(Child); P; Child = P, P = PM.getParent(P)) {
     if (isa<ParenExpr>(P) || isa<ImplicitCastExpr>(P) || isa<ExprWithCleanups>(P))
@@ -215,11 +342,11 @@ bool isChecked(const Expr *E, ParentMap &PM, const llvm::SmallPtrSetImpl<const V
     if (isa<ReturnStmt>(P))
       return true;
     if (const auto *UO = dyn_cast<UnaryOperator>(P))
-      return UO->getOpcode() == UO_LNot;
+      return UO->getOpcode() == UO_LNot && conditionReacts(UO, PM);
     if (const auto *CO = dyn_cast<ConditionalOperator>(P))
       return Child == CO->getCond();
     if (const auto *If = dyn_cast<IfStmt>(P))
-      return Child == If->getCond();
+      return Child == If->getCond() && (reacts(If->getThen()) || reacts(If->getElse()));
     if (const auto *W = dyn_cast<WhileStmt>(P))
       return Child == W->getCond();
     if (const auto *D = dyn_cast<DoStmt>(P))
@@ -237,13 +364,22 @@ bool isChecked(const Expr *E, ParentMap &PM, const llvm::SmallPtrSetImpl<const V
     }
     if (const auto *BO = dyn_cast<BinaryOperator>(P)) {
       if (BO->isComparisonOp() || BO->isLogicalOp())
-        return true;
+        return conditionReacts(BO, PM);
       if (BO->getOpcode() == BO_Assign && Child == BO->getRHS()) {
-        if (isChecked(BO, PM, CondVars))
+        if (isChecked(BO, PM, CondVars, SM))
           return true;
+        // Stored, then tested: a test after the store (one before it, as
+        // in `if (n > avail) n = avail; n = copy(...); pos += n;`, sees an
+        // older value).
         const auto *DRE = dyn_cast<DeclRefExpr>(raptor::strip(BO->getLHS()));
         const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
-        return VD && CondVars.count(VD);
+        auto It = VD ? CondVars.find(VD) : CondVars.end();
+        if (It == CondVars.end())
+          return false;
+        SourceLocation At = SM.getExpansionLoc(BO->getEndLoc());
+        return llvm::any_of(It->second, [&](SourceLocation L) {
+          return SM.isBeforeInTranslationUnit(At, SM.getExpansionLoc(L)) || !L.isValid();
+        });
       }
       return false;
     }
@@ -252,15 +388,15 @@ bool isChecked(const Expr *E, ParentMap &PM, const llvm::SmallPtrSetImpl<const V
   return false;
 }
 
-// Variables read by a condition or a comparison in Body.
-void conditionVars(const Stmt *Body, llvm::SmallPtrSetImpl<const VarDecl *> &Out) {
+// Variables read by a condition or a comparison in Body, with where.
+void conditionVars(const Stmt *Body, CondReads &Out) {
   std::function<void(const Stmt *, bool)> Walk = [&](const Stmt *S, bool InCond) {
     if (!S)
       return;
     if (InCond)
       if (const auto *DRE = dyn_cast<DeclRefExpr>(S))
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-          Out.insert(VD);
+          Out[VD].push_back(DRE->getBeginLoc());
     const Stmt *Cond = nullptr;
     if (const auto *If = dyn_cast<IfStmt>(S))
       Cond = If->getCond();
@@ -520,7 +656,7 @@ public:
     for (const FunctionDecl *FD : Col.Defs) {
       AnalysisDeclContext *ADC = Mgr.getAnalysisDeclContext(FD);
       ParentMap &PM = ADC->getParentMap();
-      llvm::SmallPtrSet<const VarDecl *, 16> CondVars;
+      CondReads CondVars;
       conditionVars(FD->getBody(), CondVars);
       llvm::SmallVector<const CallExpr *, 32> Calls;
       findCalls(FD->getBody(), Calls);
@@ -536,7 +672,7 @@ public:
           continue;
         bool Disc = isDiscarded(CE, PM);
         Sites[Def->getCanonicalDecl()].push_back(
-            {CE, FD, Disc, isChecked(CE, PM, CondVars), Disc && onErrorPath(CE, PM, Ctx),
+            {CE, FD, Disc, isChecked(CE, PM, CondVars, SM), Disc && onErrorPath(CE, PM, Ctx),
              Disc ? uninitOutArg(CE, FD, SM) : nullptr});
       }
     }
@@ -555,6 +691,8 @@ public:
       bool Norm = Checked == 0 || Checked < Discarded;
       const FunctionDecl *Def = nullptr;
       Callee->hasBody(Def);
+      if (Def && isTranslator(Def))
+        continue;
       bool Status = isStatusFunction(Def, Ctx, Cache);
       for (const Site &S : List) {
         if (!S.Discarded || S.Excused || !SM.isInMainFile(SM.getExpansionLoc(S.CE->getBeginLoc())))

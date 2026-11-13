@@ -192,3 +192,58 @@ void fill_max(int *out, unsigned max, unsigned n)
 		// ruleid: raptor-loop-bound-ignores-capacity-param
 		out[i] = 0;
 }
+
+// google/brotli dec/huffman.c BrotliBuildCodeLengthsHuffmanTable: `count` is
+// a histogram (indexed), not a capacity, and the bound is a local that only
+// ever holds a constant.
+void build_table(int *table, const unsigned char *code_lengths, unsigned short *count)
+{
+	int key, table_size;
+	table_size = 1 << 5;
+	if (count[0] == 0) {
+		for (key = 0; key < table_size; ++key)
+			// ok: raptor-loop-bound-ignores-capacity-param
+			table[key] = code_lengths[0];
+		return;
+	}
+}
+// google/brotli enc/cluster_inc.h HistogramReindex: the bound counts entries
+// picked by a loop over the capacity, at most one per iteration.
+void reindex(int *out, unsigned *symbols, unsigned length)
+{
+	unsigned i, next_index = 0;
+	int tmp[64];
+	for (i = 0; i < length; ++i) {
+		if (symbols[i] == next_index) {
+			tmp[next_index] = out[symbols[i]];
+			++next_index;
+		}
+	}
+	for (i = 0; i < next_index; ++i)
+		// ok: raptor-loop-bound-ignores-capacity-param
+		out[i] = tmp[i];
+}
+// Still reported: the counter grows more than once per iteration.
+void reindex_twice(int *out, unsigned *symbols, unsigned length)
+{
+	unsigned i, n = 0;
+	for (i = 0; i < length; ++i) {
+		if (symbols[i]) ++n;
+		++n;
+	}
+	for (i = 0; i < n; ++i)
+		// ruleid: raptor-loop-bound-ignores-capacity-param
+		out[i] = 0;
+}
+// Still reported: the counting loop is nested, so it runs `length` times per
+// outer iteration.
+void reindex_nested(int *out, unsigned *symbols, unsigned length, unsigned rounds)
+{
+	unsigned r, i, n = 0;
+	for (r = 0; r < rounds; ++r)
+		for (i = 0; i < length; ++i)
+			if (symbols[i]) ++n;
+	for (i = 0; i < n; ++i)
+		// ruleid: raptor-loop-bound-ignores-capacity-param
+		out[i] = 0;
+}

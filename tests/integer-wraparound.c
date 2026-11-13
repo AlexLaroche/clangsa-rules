@@ -459,3 +459,12 @@ char *str_scaled(const char *string, size_t extra)
 	free(a);
 	return b;
 }
+
+// google/brotli c/tools/brotli.c: a `static const` with a constant
+// initialiser is a constant, even though C does not make it an ICE.
+static const size_t kFileBufferSize = 1 << 19;
+unsigned char *file_buffers(void)
+{
+	// ok: raptor-integer-wraparound
+	return malloc(kFileBufferSize * 2);
+}
