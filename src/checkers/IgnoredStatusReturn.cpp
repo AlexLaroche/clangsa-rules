@@ -71,6 +71,12 @@ namespace {
 enum class Status { InProgress, Yes, No };
 using StatusCache = llvm::DenseMap<const FunctionDecl *, Status>;
 
+// getName() asserts on operators, conversion functions and constructors,
+// which have no plain identifier; they are never status functions by name.
+StringRef plainName(const FunctionDecl *FD) {
+  return FD->getDeclName().isIdentifier() ? FD->getName() : StringRef();
+}
+
 void collectReturns(const Stmt *S, llvm::SmallVectorImpl<const ReturnStmt *> &Out) {
   if (!S || isa<LambdaExpr>(S) || isa<BlockExpr>(S))
     return;
@@ -284,7 +290,7 @@ bool reacts(const Stmt *S) {
         return true;
       // Whole words of the name (`log_error`, `ReportFailure`), so that
       // `HasherReset` is not an "err" function.
-      StringRef N = FD->getName();
+      StringRef N = plainName(FD);
       std::string Word;
       auto isErrorWord = [](StringRef W) {
         return raptor::isOneOf(W, {"err", "error", "errors", "perror", "fail", "failed",
@@ -668,7 +674,7 @@ public:
         QualType RT = Def->getReturnType();
         if (!RT->isIntegralOrEnumerationType() && !RT->isPointerType())
           continue;
-        if (isTeardown(Def->getName()))
+        if (isTeardown(plainName(Def)))
           continue;
         bool Disc = isDiscarded(CE, PM);
         Sites[Def->getCanonicalDecl()].push_back(
