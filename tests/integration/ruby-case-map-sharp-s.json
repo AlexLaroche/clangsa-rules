@@ -1,0 +1,29 @@
+{
+  "name": "ruby-case-map-sharp-s",
+  "cve": "GHSA-34m4-m9fh-gqp5",
+  "repo": "https://github.com/ruby/ruby.git",
+  "vulnerable": "cdd499eccd1a8ec60021e5f7cec02a22d4c0b790",
+  "fixed": "b841d6f4f1b442ac9cc8de590b43f9e4ba6d3603",
+  "fixed_note": "Fix a heap buffer overflow in case mapping of the sharp s (ruby_3_4, released in 3.4.13; same fix in 4.0.10 and 3.3.14): the case_map loop of 14 single-byte encodings now checks `to_end - to > 1`, since sharp s maps to two bytes",
+  "setup": [
+    ["./autogen.sh"],
+    ["./configure", "--disable-install-doc"]
+  ],
+  "checker": "raptor.LoopGuardOutpacedByWrites",
+  "args": [
+    "-I.",
+    "-Iinclude",
+    "-I.ext/include/x86_64-linux",
+    "-Ienc/unicode/15.0.0",
+    "-Ienc",
+    "-DONIG_ENC_REGISTER=rb_enc_register"
+  ],
+  "files": {
+    "enc/iso_8859_1.c": [
+      {"re": "^    \\*to\\+\\+ = code;$", "after": "^case_map\\("}
+    ],
+    "enc/windows_1252.c": [
+      {"re": "^    \\*to\\+\\+ = code;$", "after": "^case_map\\("}
+    ]
+  }
+}

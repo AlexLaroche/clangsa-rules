@@ -1,0 +1,30 @@
+{
+  "name": "ndpi-json-string-escape",
+  "cve": "CVE-2026-86098",
+  "repo": "https://github.com/ntop/nDPI.git",
+  "vulnerable": "d56ab36cd8db476fb23353cca95488493f64f24a",
+  "fixed": "94e82c1de12323d992895830231865736a8abf2c",
+  "fixed_note": "ndpi_json_string_escape: the loop checked `j < dst_max_len` (room for one) and escapes wrote two bytes; the fix checks `j + 2 > safe_max_len` before every two-byte write",
+  "setup": [
+    [
+      "./autogen.sh"
+    ],
+    [
+      "./configure",
+      "--with-only-libndpi"
+    ]
+  ],
+  "checker": "raptor.LoopGuardOutpacedByWrites",
+  "args": [
+    "-Isrc/include",
+    "-Isrc/lib/third_party/include"
+  ],
+  "files": {
+    "src/lib/ndpi_serializer.c": [
+      {
+        "re": "^\\s+dst\\[j\\+\\+\\] = c;$",
+        "after": "^int ndpi_json_string_escape\\("
+      }
+    ]
+  }
+}

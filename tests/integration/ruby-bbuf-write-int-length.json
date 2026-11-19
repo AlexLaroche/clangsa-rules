@@ -1,0 +1,33 @@
+{
+  "name": "ruby-bbuf-write-int-length",
+  "cve": "GHSA-3p8q-wmhx-vm2w",
+  "repo": "https://github.com/ruby/ruby.git",
+  "vulnerable": "8e6b79e4eb03d60b74e95839355108a59a0c74d0",
+  "fixed": "57c24699fe45ef74052b277ffdc2f366a21d6395",
+  "fixed_note": "Bound compiled program writes (6c6e6c9273) and harden BBuf size arithmetic against 32-bit overflow (57c24699fe), ruby_3_4, released in 3.4.13: BBUF_WRITE computed `int used = (pos) + (int)(n)` to decide whether to grow, then copied n bytes; it now computes the size in size_t and caps it",
+  "setup": [
+    [
+      "./autogen.sh"
+    ],
+    [
+      "./configure",
+      "--disable-install-doc"
+    ]
+  ],
+  "checker": "raptor.NarrowedCopyLength",
+  "args": [
+    "-I.",
+    "-Iinclude",
+    "-I.ext/include/x86_64-linux",
+    "-Ienc/unicode/15.0.0",
+    "-DRUBY_EXPORT"
+  ],
+  "files": {
+    "regcomp.c": [
+      {
+        "re": "^  BBUF_ADD\\(reg, bytes, len\\);$",
+        "after": "^add_bytes\\("
+      }
+    ]
+  }
+}

@@ -103,7 +103,8 @@ inline QualType effectiveType(ASTContext &C, const Expr *E,
 
 // Upper bound on the number of value bits of E (its value is in
 // [0, 2^bits)), or nullopt when E may be negative or nothing better than its
-// type is known. Follows `& C`, `% C`, `>> k` on unsigned values, `|`, `^`,
+// type is known. Follows `& C`, `% C`, `>> k` on unsigned values, `c - y`
+// with y known to be at most c, `|`, `^`,
 // conditionals, and constants; explicit casts are looked through like the
 // rule does, and every node is capped by the width of its own type.
 inline std::optional<unsigned> valueBits(ASTContext &C, const Expr *E,
@@ -204,6 +205,12 @@ inline std::optional<unsigned> valueBits(ASTContext &C, const Expr *E, const Stm
       if (Rb && BO->getLHS()->getType()->isUnsignedIntegerType() &&
           BO->getRHS()->EvaluateAsInt(R, C) && raptor::toInt64(R.Val.getInt()) > 0)
         return Cap((R.Val.getInt() - 1).getActiveBits());
+      return Cap(std::nullopt);
+    case BO_Sub:
+      // c - y with y <= c (`15 - (n % 16)`): no wrap, at most c
+      if (Rb && *Rb < 63 && BO->getLHS()->EvaluateAsInt(R, C) && !R.Val.getInt().isNegative() &&
+          raptor::toInt64(R.Val.getInt()) >= (int64_t(1) << *Rb) - 1)
+        return Cap(R.Val.getInt().getActiveBits());
       return Cap(std::nullopt);
     case BO_Shr:
       if (L && BO->getRHS()->EvaluateAsInt(R, C)) {

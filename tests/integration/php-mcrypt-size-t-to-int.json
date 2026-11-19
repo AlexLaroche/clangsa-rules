@@ -1,0 +1,28 @@
+{
+  "name": "php-mcrypt-size-t-to-int",
+  "cve": "PHP bugs #72551, #72552 (no CVE assigned)",
+  "repo": "https://github.com/php/php-src.git",
+  "vulnerable": "2ca8d85dd4ac6d5f8c046f339f9636e3099b0f08",
+  "fixed": "3810e7b362e7bdef00ad33ae683a49aa7ab19e0d",
+  "fixed_note": "Fix bug #72551 and bug #72552 - check before converting size_t->int: mcrypt_generic/mdecrypt_generic sized the buffer with data_size = (int)data_len and copied data_len bytes; the fix rejects a length the cast changed (PHP 7.0.9)",
+  "setup": [
+    ["./buildconf", "--force"],
+    ["./configure", "--disable-all"]
+  ],
+  "checker": "raptor.NarrowedCopyLength",
+  "args": [
+    "-DHAVE_LIBMCRYPT=1",
+    "-I.",
+    "-Imain",
+    "-IZend",
+    "-ITSRM",
+    "-Iext/date/lib"
+  ],
+  "files": {
+    "ext/mcrypt/mcrypt.c": [
+      {"re": "^\\t\\tdata_size = \\(int\\)data_len;$", "after": "^PHP_FUNCTION\\(mcrypt_generic\\)$"},
+      {"re": "^\\t\\tdata_size = \\(int\\)data_len;$", "after": "^PHP_FUNCTION\\(mdecrypt_generic\\)$"}
+    ]
+  },
+  "setup_note": "ext/mcrypt needs mcrypt.h (libmcrypt-dev); configure --disable-all only generates main/php_config.h, and HAVE_LIBMCRYPT is passed on the command line"
+}

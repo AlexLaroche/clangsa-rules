@@ -37,7 +37,7 @@ jobs:
             libapr1-dev libaprutil1-dev libopenjp2-7-dev libpcre2-dev \
             x11proto-dev libpixman-1-dev libxkbfile-dev libglib2.0-dev \
             libimath-dev libnghttp2-dev autoconf automake \
-            flex bison bc libelf-dev
+            flex bison bc libelf-dev libtool ruby libmcrypt-dev re2c
           echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
 
       - name: Show toolchain
