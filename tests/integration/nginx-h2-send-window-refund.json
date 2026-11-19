@@ -1,0 +1,28 @@
+{
+  "name": "nginx-h2-send-window-refund",
+  "cve": "CVE-2026-123007",
+  "repo": "https://github.com/nginx/nginx.git",
+  "vulnerable": "e39708edc69a9c0c992b6af075db761946969534",
+  "fixed": "e27f5fa84fe6e98505e70bc543b748747dad0a3b",
+  "fixed_note": "HTTP/2: account for queued frames when validating WINDOW_UPDATE (the refund now moves credit back from send_queued, which the WINDOW_UPDATE check subtracts); released in 1.31.9 / 1.30.7",
+  "setup": [
+    ["auto/configure", "--with-http_v2_module", "--with-http_ssl_module"]
+  ],
+  "checker": "raptor.UncappedCreditReplenish",
+  "args": [
+    "-Isrc/core",
+    "-Isrc/event",
+    "-Isrc/event/modules",
+    "-Isrc/event/quic",
+    "-Isrc/os/unix",
+    "-Iobjs",
+    "-Isrc/http",
+    "-Isrc/http/modules",
+    "-Isrc/http/v2"
+  ],
+  "files": {
+    "src/http/v2/ngx_http_v2_filter_module.c": [
+      {"re": "^    h2c->send_window \\+= window;$", "after": "^ngx_http_v2_filter_cleanup\\(void \\*data\\)$"}
+    ]
+  }
+}

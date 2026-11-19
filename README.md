@@ -9,8 +9,8 @@ registered as `raptor.<CamelCaseRuleName>`, e.g. `raptor-use-after-free` ->
 `raptor.UncheckedCursorWrite`, `raptor.UncheckedSourceOffset`,
 `raptor.WStreamLengthUnsealed`, `raptor.UncheckedAllocProduct`,
 `raptor.CopyIgnoresSourceSize`, `raptor.NegativeLengthUnchecked`,
-`raptor.UnboundedCopyToStackArray`, `raptor.SizeFieldIgnoresCapacity` and
-`raptor.DuplicateContainerInsert`.
+`raptor.UnboundedCopyToStackArray`, `raptor.SizeFieldIgnoresCapacity`,
+`raptor.DuplicateContainerInsert` and `raptor.UncappedCreditReplenish`.
 
 Because clang runs the preprocessor, every file that compiles is analysed:
 `#if`/`#else` splits that make semgrep drop whole files (e.g. OpenSSL
@@ -145,6 +145,7 @@ after a line matching `after` (a label, a function header).
 | `libssh2-sftp-open-double-free` | CVE-2026-66032 | `raptor.DoubleFree` | libssh2 `f784c21` → `5e47761` |
 | `libssh2-aes-gcm-assert-bound` | CVE-2026-66033 | `raptor.AssertOnlyBound` | libssh2 `74a09eb` → `a2ed82d` |
 | `freerdp-websocket-pong` | CVE-2026-67292 | `raptor.WStreamLengthUnsealed` | FreeRDP `efe40e1` → `91bbb4e` (3.29.0) |
+| `linux-io-edgeport-tx-credits` | CVE-2026-68365 | `raptor.UncappedCreditReplenish` | Linux `55645e4` → `faaddd8` (io_edgeport, stable backports) |
 | `ffmpeg-raw-rgb` | CVE-2026-70628 | `raptor.UncheckedAllocProduct` | FFmpeg `3538578` → `d32b387` |
 | `indi-lilxml-error-format` | CVE-2026-71979 | `raptor.UnboundedCopyToStackArray` | INDI `3220880` → `96bbd7f` |
 | `mongoose-tls-record-size` | CVE-2026-73252 | `raptor.UncheckedUnsignedSubtraction` | Mongoose `7fa830f` → `758e301` |
@@ -152,12 +153,13 @@ after a line matching `after` (a label, a function header).
 | `xserver-xkb-doodad-text-free` | CVE-2026-88812 | `raptor.FreedFieldNotCleared` | X.Org xserver `effe0ba` → `0d1b1b0` |
 | `dcmtk-concatenation` | CVE-2026-97059 | `raptor.UncheckedSourceOffset` | DCMTK `30cc153` → `18379d5` |
 | `libexpat-realloc-assert-overflow` | CVE-2026-102633 | `raptor.AssertOnlyBound` | libexpat `cccede3` → `209801d` |
-| `freerdp-persistent-cache-v2` | CVE-2026-111381 | `raptor.SizeFieldIgnoresCapacity` | FreeRDP `b99ed85` → `bb10797` (3.32.0) |
-| `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
 | `mikmod-dsm-numtrk-product` | CVE-2026-105837 | `raptor.TruncatedProduct` | libmikmod `08d7d21` → `a125eab` |
 | `mikmod-okt-numtrk-product` | CVE-2026-105839 | `raptor.TruncatedProduct` | libmikmod `e7c6c9e` → `097b692` |
+| `freerdp-persistent-cache-v2` | CVE-2026-111381 | `raptor.SizeFieldIgnoresCapacity` | FreeRDP `b99ed85` → `bb10797` (3.32.0) |
+| `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
 | `libsmb2-dcerpc-carray-alloc` | CVE-2026-115505 | `raptor.UncheckedAllocProduct` | libsmb2 `312feca` → `a79f691` (6.3) |
 | `freeimage-iff-pbm-rle` | CVE-2026-118752 | `raptor.UncheckedCursorWrite` | FreeImage `5af27d0` → `38fbe82` (3.19.22) |
+| `nginx-h2-send-window-refund` | CVE-2026-123007 | `raptor.UncappedCreditReplenish` | nginx `e39708e` → `e27f5fa` (1.31.9, 1.30.7) |
 
 ```sh
 python3 tools/run_integration.py      # all, or: tools/run_integration.py heartbleed

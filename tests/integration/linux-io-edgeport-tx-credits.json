@@ -1,0 +1,73 @@
+{
+  "name": "linux-io-edgeport-tx-credits",
+  "cve": "CVE-2026-68365",
+  "repo": "https://github.com/torvalds/linux.git",
+  "vulnerable": "55645e4f3c6022ffb160ad3617d2b624eaa38501",
+  "fixed": "faaddd811c5099f11a5f52e68a6b31a5898cda4f",
+  "fixed_note": "USB: serial: io_edgeport: cap received transmit credits (txCredits = min(txCredits + credits, maxTxCredits)); stable backports ee57992c, d9dd87bc, 5b39d3da, 63c4e55d",
+  "setup": [
+    [
+      "make",
+      "LLVM=-23",
+      "defconfig"
+    ],
+    [
+      "make",
+      "LLVM=-23",
+      "-j2",
+      "prepare"
+    ]
+  ],
+  "checker": "raptor.UncappedCreditReplenish",
+  "args": [
+    "--target=x86_64-linux-gnu",
+    "-nostdinc",
+    "-Iarch/x86/include",
+    "-Iarch/x86/include/generated",
+    "-Iinclude",
+    "-Iarch/x86/include/uapi",
+    "-Iarch/x86/include/generated/uapi",
+    "-Iinclude/uapi",
+    "-Iinclude/generated/uapi",
+    "-include",
+    "include/linux/compiler-version.h",
+    "-include",
+    "include/linux/kconfig.h",
+    "-include",
+    "include/linux/compiler_types.h",
+    "-D__KERNEL__",
+    "-std=gnu11",
+    "-fms-anonymous-structs",
+    "-fshort-wchar",
+    "-funsigned-char",
+    "-fno-common",
+    "-fno-PIE",
+    "-fno-strict-aliasing",
+    "-fno-strict-overflow",
+    "-fstrict-flex-arrays=3",
+    "-fno-delete-null-pointer-checks",
+    "-mno-sse",
+    "-mno-mmx",
+    "-mno-sse2",
+    "-mno-3dnow",
+    "-mno-avx",
+    "-mno-80387",
+    "-mno-red-zone",
+    "-mcmodel=kernel",
+    "-march=x86-64",
+    "-fexperimental-late-parse-attributes",
+    "-DKBUILD_MODFILE=\"drivers/usb/io_edgeport\"",
+    "-DKBUILD_BASENAME=\"io_edgeport\"",
+    "-DKBUILD_MODNAME=\"io_edgeport\"",
+    "-D__KBUILD_MODNAME=io_edgeport"
+  ],
+  "files": {
+    "drivers/usb/serial/io_edgeport.c": [
+      {
+        "re": "edge_port->txCredits (\\+= txCredits|= min\\(edge_port->txCredits \\+ txCredits,)",
+        "after": "^static void edge_interrupt_callback\\("
+      }
+    ]
+  },
+  "setup_note": "kconfig and prepare need flex, bison, bc and libelf-dev"
+}
