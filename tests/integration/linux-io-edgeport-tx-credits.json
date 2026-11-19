@@ -9,11 +9,13 @@
     [
       "make",
       "LLVM=-23",
+      "LLVM_PREFIX=",
       "defconfig"
     ],
     [
       "make",
       "LLVM=-23",
+      "LLVM_PREFIX=",
       "-j2",
       "prepare"
     ]
@@ -69,5 +71,5 @@
       }
     ]
   },
-  "setup_note": "kconfig and prepare need flex, bison, bc and libelf-dev"
+  "setup_note": "kconfig and prepare need flex, bison, bc and libelf-dev; LLVM_PREFIX= stops kbuild from reading the CI's LLVM_PREFIX environment variable"
 }
