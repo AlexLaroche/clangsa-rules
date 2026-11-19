@@ -7,6 +7,14 @@
 Each translation unit is analysed with its real build flags (so the
 preprocessor resolves #if/#else exactly as the build did) and the plugin's
 warnings are collected into a JSON list of {file, line, col, checker, message}.
+
+`--analyze` makes the driver pass -w, so a second, parse-only pass
+(-fsyntax-only) collects a few compiler warnings that catch bug patterns no
+checker needs to reimplement (`--warnings`, empty to skip it); they are
+reported with the flag as the checker, e.g. "-Wmisleading-indentation":
+  -Wstring-compare          `s == "literal"` compares pointers
+  -Wmisleading-indentation  `if (c) goto fail; goto fail;` (Apple goto fail)
+  -Wunreachable-code        code that can never run
 """
 import argparse
 import concurrent.futures as cf
@@ -35,7 +43,12 @@ def keep_w(flag):
     return flag.startswith(('-Wno-', '-Wp,-D', '-Wp,-U'))
 
 
-def analysis_cmd(entry, plugin, checkers, disabled):
+DEFAULT_WARNINGS = 'string-compare,misleading-indentation,unreachable-code'
+
+
+def build_flags(entry):
+    """The TU's compile command without output, dependency, optimisation and
+    warning flags, with a clang compiler."""
     args = entry.get('arguments') or shlex.split(entry['command'])
     out, skip = [args[0]], False
     for a in args[1:]:
@@ -51,7 +64,16 @@ def analysis_cmd(entry, plugin, checkers, disabled):
     if 'clang' not in pathlib.Path(out[0]).name:
         out[0] = 'clang++' if entry['file'].endswith(('.cpp', '.cc', '.cxx')) else 'clang'
     # colour codes would hide every diagnostic from DIAG
-    out += ['-fno-color-diagnostics', '--analyze', '-w', '-o', '/dev/null',
+    return out + ['-fno-color-diagnostics']
+
+
+def warnings_cmd(entry, warnings):
+    return build_flags(entry) + ['-fsyntax-only', '-Wno-everything'] + [f'-W{w}' for w in warnings]
+
+
+def analysis_cmd(entry, plugin, checkers, disabled):
+    out = build_flags(entry)
+    out += ['--analyze', '-w', '-o', '/dev/null',
             '-Xclang', '-load', '-Xclang', str(plugin),
             '-Xclang', f'-analyzer-checker={checkers}',
             '-Xclang', '-analyzer-output=text']
@@ -60,20 +82,32 @@ def analysis_cmd(entry, plugin, checkers, disabled):
     return out
 
 
-def run(entry, plugin, checkers, disabled, report, timeout):
+def diags(entry, stderr, keep):
+    out = []
+    for m in DIAG.finditer(stderr):
+        if keep(m['checker']):
+            f = os.path.normpath(os.path.join(entry['directory'], m['file']))
+            out.append({'file': f, 'line': int(m['line']), 'col': int(m['col']),
+                        'checker': m['checker'], 'message': m['msg']})
+    return out
+
+
+def run(entry, plugin, checkers, disabled, report, timeout, warnings=()):
     cmd = analysis_cmd(entry, plugin, checkers, disabled)
     try:
         p = subprocess.run(cmd, cwd=entry['directory'], capture_output=True,
                            text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return entry['file'], [], 'timeout'
-    found = []
-    for m in DIAG.finditer(p.stderr):
-        if not re.match(report, m['checker']):
-            continue
-        f = os.path.normpath(os.path.join(entry['directory'], m['file']))
-        found.append({'file': f, 'line': int(m['line']), 'col': int(m['col']),
-                      'checker': m['checker'], 'message': m['msg']})
+    found = diags(entry, p.stderr, lambda c: re.match(report, c))
+    if warnings:
+        wanted = {f'-W{w}' for w in warnings}
+        try:
+            w = subprocess.run(warnings_cmd(entry, warnings), cwd=entry['directory'],
+                               capture_output=True, text=True, timeout=timeout)
+            found += diags(entry, w.stderr, lambda c: c in wanted)
+        except subprocess.TimeoutExpired:
+            pass
     errors = ERROR.findall(p.stderr)
     if not errors and p.returncode != 0:
         errors = [f'clang exited with code {p.returncode}']
@@ -91,12 +125,17 @@ def main():
     ap.add_argument('--filter', default='', help='only TUs whose path matches this regex')
     ap.add_argument('-j', '--jobs', type=int, default=os.cpu_count())
     ap.add_argument('--timeout', type=int, default=600)
+    ap.add_argument('--warnings', default=DEFAULT_WARNINGS,
+                    help='comma-separated compiler warnings (without -W) to collect in a '
+                         'parse-only pass; empty to skip it')
     a = ap.parse_args()
+    warnings = tuple(w for w in a.warnings.split(',') if w)
 
     entries = [e for e in json.load(open(a.cdb)) if re.search(a.filter, e['file'])]
     seen, findings, failures = set(), [], []
     with cf.ThreadPoolExecutor(a.jobs) as ex:
-        futs = [ex.submit(run, e, a.plugin, a.checkers, a.disable, a.report, a.timeout) for e in entries]
+        futs = [ex.submit(run, e, a.plugin, a.checkers, a.disable, a.report, a.timeout, warnings)
+                for e in entries]
         for i, fut in enumerate(cf.as_completed(futs), 1):
             tu, found, err = fut.result()
             if err:

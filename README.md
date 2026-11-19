@@ -54,6 +54,11 @@ A whole project, with its real build flags from `compile_commands.json`
 tools/scan.py compile_commands.json -o findings.json -j 8 [--filter REGEX]
 ```
 
+`scan.py` also runs a parse-only pass per file for three compiler warnings that
+catch bug patterns no checker needs to reimplement, reported with the flag as
+the checker: `-Wstring-compare` (`s == "literal"`), `-Wmisleading-indentation`
+(Apple's `goto fail`) and `-Wunreachable-code`. `--warnings ''` skips it.
+
 `scan-build -load-plugin build/RaptorCheckers.so -enable-checker raptor make`
 also works.
 
