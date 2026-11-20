@@ -1,0 +1,50 @@
+{
+  "name": "wine-comctl32-mbtowc-byte-count",
+  "cve": "Wine bd7ec9a (no CVE assigned)",
+  "repo": "https://gitlab.winehq.org/wine/wine.git",
+  "vulnerable": "db62ddec4d08d8516453a348e97d71079b518ca8",
+  "fixed": "bd7ec9aca5212e273427e0f102813a40164f59cf",
+  "fixed_note": "The last argument to MultiByteToWideChar is wide character count and not the buffer size in bytes: comctl32 passed sizeof(szTitle) for a WCHAR[256] (propsheet.c), (len+1)*sizeof(WCHAR) (toolbar.c) and buflen = max(len*sizeof(WCHAR), ...) (treeview.c), letting the conversion write up to twice past the buffer. The same commit left LoadStringW(..., sizeof(szTitle)) and GetWindowTextW(..., sizeof(buffer)) in these files, which are also reported (not sinks).",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "printf '%s' \"$0\" > include/config.h",
+      "#define __WINE_CONFIG_H\n#define HAVE_FFS 1\n#define HAVE_FSBLKCNT_T 1\n#define HAVE_FSFILCNT_T 1\n#define HAVE_FSTATVFS 1\n#define HAVE_FTRUNCATE 1\n#define HAVE_FUTIMES 1\n#define HAVE_GETOPT_LONG 1\n#define HAVE_GETPAGESIZE 1\n#define HAVE_GETTID 1\n#define HAVE_LSTAT 1\n#define HAVE_MEMMOVE 1\n#define HAVE_MODE_T 1\n#define HAVE_OFF_T 1\n#define HAVE_PCLOSE 1\n#define HAVE_PID_T 1\n#define HAVE_POPEN 1\n#define HAVE_PREAD 1\n#define HAVE_PWRITE 1\n#define HAVE_READLINK 1\n#define HAVE_SIGSETJMP 1\n#define HAVE_SIZE_T 1\n#define HAVE_SNPRINTF 1\n#define HAVE_SPAWNVP 1\n#define HAVE_SSIZE_T 1\n#define HAVE_STATVFS 1\n#define HAVE_STRCASECMP 1\n#define HAVE_STRERROR 1\n#define HAVE__STRICMP 1\n#define HAVE_STRNCASECMP 1\n#define HAVE__STRNICMP 1\n#define HAVE_STRUCT_OPTION_NAME 1\n#define HAVE_STRUCT_STATVFS_F_BLOCKS 1\n#define HAVE_USLEEP 1\n#define HAVE_VSNPRINTF 1\n#define HAVE_UNISTD_H 1\n"
+    ]
+  ],
+  "setup_note": "configure of 2005 does not run on a current system; wine/port.h only needs __WINE_CONFIG_H and HAVE_* for the libc functions it would otherwise redeclare",
+  "checker": "raptor.WideCountInBytes",
+  "args": [
+    "-D__WINESRC__",
+    "-D_REENTRANT",
+    "-Iinclude",
+    "-Idlls/comctl32"
+  ],
+  "files": {
+    "dlls/comctl32/propsheet.c": [
+      {
+        "re": "^     MultiByteToWideChar\\(CP_ACP, 0, lpszText, -1,$",
+        "after": "^static void PROPSHEET_SetTitleA"
+      }
+    ],
+    "dlls/comctl32/toolbar.c": {
+      "vulnerable": [
+        {
+          "re": "MultiByteToWideChar\\(CP_ACP, 0, tbgit\\.pszText, len\\+1, .*\\(len\\+1\\)\\*sizeof\\(WCHAR\\)\\);$",
+          "count": 2
+        }
+      ],
+      "fixed": [
+        "MultiByteToWideChar\\(CP_ACP, 0, tbgit\\.pszText, -1, infoPtr->pszTooltipText, len\\);$",
+        "^            MultiByteToWideChar\\(CP_ACP, 0, tbgit\\.pszText, -1,$"
+      ]
+    },
+    "dlls/comctl32/treeview.c": [
+      {
+        "re": "^\\t\\tMultiByteToWideChar\\( CP_ACP, 0,$",
+        "count": 2
+      }
+    ]
+  }
+}

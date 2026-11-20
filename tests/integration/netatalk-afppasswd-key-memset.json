@@ -1,0 +1,28 @@
+{
+  "name": "netatalk-afppasswd-key-memset",
+  "cve": "Netatalk 043435c (no CVE assigned)",
+  "repo": "https://github.com/Netatalk/netatalk.git",
+  "vulnerable": "33ed6f8ddff8fd1123eea9d5e07f301cd1df29e1",
+  "fixed": "043435ceb167263bea6799f1db5891a08b490461",
+  "fixed_note": "use explicit_bzero to clear out sensitive data from memory: afppasswd's convert_passwd wiped the DES key (a local array, not used again) with memset(), which the compiler may remove. The other memsets changed by the commit wipe the caller's request buffer or static randbuf and cannot be removed.",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      ": > config.h"
+    ]
+  ],
+  "checker": "raptor.ElidableSecretWipe",
+  "args": [
+    "-I.",
+    "-Iinclude",
+    "-D_PATH_AFPDPWFILE=\"/etc/netatalk/afppasswd\"",
+    "-DVERSION=\"4\""
+  ],
+  "setup_note": "meson setup needs iniparser and more; afppasswd.c only needs config.h (empty is enough) plus two macros meson defines, and gcrypt.h (libgcrypt20-dev)",
+  "files": {
+    "bin/afppasswd/afppasswd.c": [
+      "^        (memset\\(key, 0, sizeof\\(key\\)\\)|explicit_bzero\\(key, sizeof\\(key\\)\\));$"
+    ]
+  }
+}

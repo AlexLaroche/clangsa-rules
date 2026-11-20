@@ -37,7 +37,8 @@ jobs:
             libapr1-dev libaprutil1-dev libopenjp2-7-dev libpcre2-dev \
             x11proto-dev libpixman-1-dev libxkbfile-dev libglib2.0-dev \
             libimath-dev libnghttp2-dev autoconf automake \
-            flex bison bc libelf-dev libtool ruby libmcrypt-dev re2c autoconf2.69
+            flex bison bc libelf-dev libtool ruby libmcrypt-dev re2c autoconf2.69 \
+            libgcrypt20-dev libiniparser-dev libncurses-dev meson
           echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
 
       - name: Show toolchain
@@ -58,6 +59,9 @@ jobs:
 
       - name: Unit tests
         run: python3 tools/run_tests.py -v
+
+      - name: scan.py tests
+        run: python3 tools/test_scan.py
 
       - name: Integration tests (CVEs, vulnerable and fixed commits)
         run: python3 tools/run_integration.py -v

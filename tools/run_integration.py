@@ -19,6 +19,7 @@ the sink (`free(ctx->f);` under `out_free:` and not in the destructor). A sink t
 lines fails the case, so a test cannot pass because the line moved or
 vanished.
 
+Large trees can name the directories to check out in "sparse".
   tools/run_integration.py [CASE...] [--plugin build/RaptorCheckers.so]
 """
 import argparse
@@ -38,8 +39,10 @@ def sh(cmd, cwd, **kw):
     return subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True, **kw)
 
 
-def checkout(repo, sha, dest, setup):
-    """Shallow checkout of repo at sha into dest (cached), then run setup."""
+def checkout(repo, sha, dest, setup, sparse=()):
+    """Shallow checkout of repo at sha into dest (cached), then run setup.
+    With sparse paths, only their blobs are fetched and checked out (for
+    trees as large as FreeBSD's when the case needs a few directories)."""
     stamp = dest / '.raptor-ready'
     if stamp.exists():
         return
@@ -47,7 +50,11 @@ def checkout(repo, sha, dest, setup):
         subprocess.run(['rm', '-rf', str(dest)], check=True)
     dest.mkdir(parents=True)
     sh(['git', 'init', '-q'], dest)
-    sh(['git', 'fetch', '-q', '--depth', '1', repo, sha], dest, timeout=600)
+    if sparse:
+        sh(['git', 'sparse-checkout', 'set', '--no-cone', *sparse], dest)
+        sh(['git', 'fetch', '-q', '--depth', '1', '--filter=blob:none', repo, sha], dest, timeout=600)
+    else:
+        sh(['git', 'fetch', '-q', '--depth', '1', repo, sha], dest, timeout=600)
     sh(['git', '-c', 'advice.detachedHead=false', 'checkout', '-q', 'FETCH_HEAD'], dest)
     got = sh(['git', 'rev-parse', 'HEAD'], dest).stdout.strip()
     if got != sha:
@@ -93,7 +100,7 @@ def run_case(case, plugin, cache, verbose):
         sha = case[side]
         src = cache / case['name'] / sha
         try:
-            checkout(case['repo'], sha, src, case.get('setup', []))
+            checkout(case['repo'], sha, src, case.get('setup', []), case.get('sparse', ()))
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError) as e:
             out = getattr(e, 'stderr', '') or ''
             print(f'FAIL {case["name"]} {side} {sha[:10]}: checkout/setup failed: {e}\n{out[-2000:]}')

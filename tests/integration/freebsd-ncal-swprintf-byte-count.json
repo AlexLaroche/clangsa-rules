@@ -1,0 +1,33 @@
+{
+  "name": "freebsd-ncal-swprintf-byte-count",
+  "cve": "FreeBSD r300005, Coverity CID 1007605/1007606 (no CVE assigned)",
+  "repo": "https://github.com/freebsd/freebsd-src.git",
+  "vulnerable": "e5d4b0faa586a1755f129945d30736703b3c894a",
+  "fixed": "b74e3739712864e2cb7970e6435ab601446efbe3",
+  "fixed_note": "swprintf() and apparently wcsftime() want their output buffer size specified in terms of the number of wide characters and not sizeof(buffer): ncal passed sizeof(ws) and sizeof(buf) for wchar_t arrays (4 bytes per character), so a long month name or weekday could be written past the array.",
+  "sparse": [
+    "/usr.bin/ncal/",
+    "/lib/libcalendar/"
+  ],
+  "setup": [],
+  "checker": "raptor.WideCountInBytes",
+  "args": [
+    "-D_GNU_SOURCE",
+    "-DD_MD_ORDER=D_FMT",
+    "-D__FBSDID(x)=",
+    "-Ilib/libcalendar"
+  ],
+  "args_note": "built on Linux: D_MD_ORDER is a FreeBSD nl_langinfo item, __FBSDID a FreeBSD macro; term.h comes from ncurses (libncurses-dev)",
+  "files": {
+    "usr.bin/ncal/ncal.c": {
+      "vulnerable": [
+        "^\\t\\t\\t\\tswprintf\\(ws, sizeof\\(ws\\), L\"%-ls %d\",$",
+        "^\\t\\twcsftime\\(buf, sizeof\\(buf\\), L\"%a\", &tm\\);$"
+      ],
+      "fixed": [
+        "^\\t\\t\\t\\tswprintf\\(ws, sizeof\\(ws\\)/sizeof\\(ws\\[0\\]\\),$",
+        "^\\t\\twcsftime\\(buf, sizeof\\(buf\\)/sizeof\\(buf\\[0\\]\\), L\"%a\", &tm\\);$"
+      ]
+    }
+  }
+}

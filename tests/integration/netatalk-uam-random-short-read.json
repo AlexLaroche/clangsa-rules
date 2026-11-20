@@ -1,0 +1,35 @@
+{
+  "name": "netatalk-uam-random-short-read",
+  "cve": "Netatalk 2721b62 (no CVE assigned)",
+  "repo": "https://github.com/Netatalk/netatalk.git",
+  "vulnerable": "771913aef2be3fc3c9d94e8507d7bc5f7dd6cb92",
+  "fixed": "2721b62d8a715962e677ab9d9777e023d56504d0",
+  "fixed_note": "afpd: harden uam_random_string: the AFP authentication nonce was filled with a single read() of /dev/urandom checked only with `ret <= 0`, so a short read left part of the nonce unset; the fix loops until the buffer is full.",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      ": > config.h && meson subprojects download bstring && ln -sfn \"$(ls -d subprojects/bstring-*/bstring | head -n 1)\" bstring-include"
+    ]
+  ],
+  "checker": "raptor.UncheckedRandomRead",
+  "args": [
+    "-D_U_=__attribute__((unused))",
+    "-DNO_DDP",
+    "-I.",
+    "-Iinclude",
+    "-Ibstring-include",
+    "-I/usr/include/iniparser"
+  ],
+  "args_note": "meson defines _U_ and NO_DDP; iniparser.h comes from libiniparser-dev, bstrlib.h from the bstring subproject (fetched by its wrap; the version differs between commits)",
+  "files": {
+    "etc/afpd/uam.c": {
+      "vulnerable": [
+        "^        ret = read\\(fd, buf, len\\);$"
+      ],
+      "fixed": [
+        "^        int ret = read\\(fd, buf \\+ done, len - done\\);$"
+      ]
+    }
+  }
+}

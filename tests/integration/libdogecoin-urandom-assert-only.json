@@ -1,0 +1,26 @@
+{
+  "name": "libdogecoin-urandom-assert-only",
+  "cve": "libdogecoin b7891cf, CWE-330 (no CVE assigned)",
+  "repo": "https://github.com/dogecoinfoundation/libdogecoin.git",
+  "vulnerable": "4cb1ccb680acb087dfec8fa5a502f16750cb17f8",
+  "fixed": "b7891cf74762e1522d033b3b8bac0387b1a41340",
+  "fixed_note": "random: fail closed on a short read from /dev/urandom: dogecoin_random_bytes_internal() checked fread()'s count only with assert(len_read == len), removed by NDEBUG in Release builds, so a short read left key material partly uninitialised and still returned true. The fix compares the count and fails.",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      ": > config/libdogecoin-config.h"
+    ]
+  ],
+  "checker": "raptor.UncheckedRandomRead",
+  "args": [
+    "-Iinclude",
+    "-Iconfig",
+    "-Isrc"
+  ],
+  "files": {
+    "src/random.c": [
+      "^    size_t len_read = fread\\(buf, 1, len, frand\\);$"
+    ]
+  }
+}

@@ -11,7 +11,9 @@ registered as `raptor.<CamelCaseRuleName>`, e.g. `raptor-use-after-free` ->
 `raptor.CopyIgnoresSourceSize`, `raptor.NegativeLengthUnchecked`,
 `raptor.UnboundedCopyToStackArray`, `raptor.SizeFieldIgnoresCapacity`,
 `raptor.DuplicateContainerInsert`, `raptor.UncappedCreditReplenish`,
-`raptor.LoopGuardOutpacedByWrites` and `raptor.NarrowedCopyLength`.
+`raptor.LoopGuardOutpacedByWrites`, `raptor.NarrowedCopyLength`,
+`raptor.ElidableSecretWipe`, `raptor.WideCountInBytes` and
+`raptor.UncheckedRandomRead`.
 
 Because clang runs the preprocessor, every file that compiles is analysed:
 `#if`/`#else` splits that make semgrep drop whole files (e.g. OpenSSL
@@ -180,6 +182,12 @@ after a line matching `after` (a label, a function header).
 | `ruby-case-map-sharp-s` | GHSA-34m4-m9fh-gqp5 (no CVE yet) | `raptor.LoopGuardOutpacedByWrites` | Ruby `cdd499e` → `b841d6f` (3.4.13, 4.0.10, 3.3.14) |
 | `ruby-bbuf-write-int-length` | GHSA-3p8q-wmhx-vm2w (no CVE yet) | `raptor.NarrowedCopyLength` | Ruby `8e6b79e` → `57c2469` (3.4.13, 4.0.10, 3.3.14) |
 | `php-mcrypt-size-t-to-int` | PHP bugs #72551, #72552 (no CVE) | `raptor.NarrowedCopyLength` | php-src `2ca8d85` → `3810e7b` (7.0.9) |
+| `ell-tls-secret-memset` | ell `a3f0cb5` (no CVE) | `raptor.ElidableSecretWipe` | ell `fb4e544` → `a3f0cb5` |
+| `netatalk-afppasswd-key-memset` | Netatalk `043435c` (no CVE) | `raptor.ElidableSecretWipe` | Netatalk `33ed6f8` → `043435c` |
+| `wine-comctl32-mbtowc-byte-count` | Wine `bd7ec9a` (no CVE) | `raptor.WideCountInBytes` | Wine `db62dde` → `bd7ec9a` (2005) |
+| `freebsd-ncal-swprintf-byte-count` | FreeBSD r300005, Coverity CID 1007605/1007606 | `raptor.WideCountInBytes` | freebsd-src `e5d4b0f` → `b74e373` |
+| `libdogecoin-urandom-assert-only` | libdogecoin `b7891cf`, CWE-330 (no CVE) | `raptor.UncheckedRandomRead` | libdogecoin `4cb1ccb` → `b7891cf` |
+| `netatalk-uam-random-short-read` | Netatalk `2721b62` (no CVE) | `raptor.UncheckedRandomRead` | Netatalk `771913a` → `2721b62` |
 
 ```sh
 python3 tools/run_integration.py      # all, or: tools/run_integration.py heartbleed
@@ -188,6 +196,9 @@ python3 tools/run_integration.py      # all, or: tools/run_integration.py heartb
 It needs network access, `git`, `perl` (OpenSSL's `./config`), `cmake` and `ninja`
 (DCMTK's and FreeRDP's configure steps; FreeRDP also needs the OpenSSL and zlib
 development headers).
+
+A case can list `"sparse"` paths: only those directories are fetched and
+checked out (FreeBSD's tree for `usr.bin/ncal`).
 
 ## Rules
 
@@ -291,6 +302,9 @@ One checker per rule of the semgrep C/C++ ruleset.
 * [**raptor.MissingBreakInSwitch**](src/checkers/MissingBreakInSwitch.cpp). Missing break or equivalent in a switch statement.
 * [**raptor.MissingReturn**](src/checkers/MissingReturn.cpp). Missing return statement in non-void function.
 * [**raptor.Typos**](src/checkers/Typos.cpp). Potential typos with security implications: `=` or a bitwise `&`/`|` in an `if` condition, `=+`, comparisons used as statements, `(E op E)`, empty `if`/`for` bodies, octal array sizes. Flag tests against a constant mask (`if (flags & (A | B))`) or a shifted bit (`mask & (1u << i)`), masked values compared on either side (`(a & m) != (b & m)`), masks built as call arguments, `|` chains and `?:` branches included (`if (lookup(t, A | B | C))`), flags handed to a macro whose own `if` tests them (OpenVPN `msg(M_WARN | M_ERRNO, ...)`), assignments in their own parentheses (`if ((p = next()))`, `!(bio = BIO_new(...))`) and operands spelled differently that expand to the same value (`IS_ENABLED(A) || IS_ENABLED(B)`) are not reported.
+* [**raptor.ElidableSecretWipe**](src/checkers/ElidableSecretWipe.cpp). `memset()`/`bzero()` zeroes a buffer that nothing reads again: a local array or struct that held data and whose lifetime ends, or memory freed by the next statement that mentions it (`memset(p, 0, n); free(p);`, any `*free` function). The optimizer may delete this dead store and leave the key or password in memory (CWE-14); use `explicit_bzero()`, `memset_explicit()` or `memset_s()`. Reads through a pointer stored elsewhere (`msg.msg_control = buf`, `sa = &addr`, `p = c ? x : buf`) keep the buffer alive; memory that outlives the function (parameters, globals, statics, a caller's object), a memset before the buffer is first used, non-zero fills, and objects that cannot hold bytes (arrays of pointers, list nodes) are not reported. ell `a3f0cb5` (TLS pre-master secrets, PRF seeds, PEM content), Netatalk `043435c` (afppasswd DES key); also flags httpd's `passwd_common.c` and libssh2's chacha20-poly1305 key wipes.
+* [**raptor.WideCountInBytes**](src/checkers/WideCountInBytes.cpp). A function that takes a wide-character buffer's size in characters (`MultiByteToWideChar`, `mbstowcs`, `wcsncpy`, `wmemcpy`, `swprintf`, `wcsftime`, `GetModuleFileNameW`, `LoadStringW`, `GetWindowTextW`, `StringCch*W`...) is given a byte count: `sizeof` of the array (± a constant), `n * sizeof(WCHAR)`, or a local assigned such a product. It may write two (WCHAR) or four (Linux `wchar_t`) times past the buffer (CWE-135). Only destinations whose element is wider than a byte are checked. Wine `bd7ec9a` (comctl32), FreeBSD r300005 (ncal), CPython bpo-32869, BambuStudio.
+* [**raptor.UncheckedRandomRead**](src/checkers/UncheckedRandomRead.cpp). Random bytes are read and the result is not checked for a full read: `read`/`pread`/`fread` of a descriptor or `FILE*` opened from `/dev/*random` in the same function whose count is ignored, compared only with 0 or -1, or checked only in `assert()` (removed by `NDEBUG`); or an all-or-nothing generator (`getrandom`, `getentropy`, `RAND_bytes`, `BCryptGenRandom`, `wc_RNG_GenerateBlock`, `mbedtls_ctr_drbg_random`...) whose result is ignored. A short read leaves part of a key, nonce or session id predictable (CWE-252, CWE-330). Comparing with the length, accumulating partial reads, or returning the result to the caller is enough. OpenWrt rpcd `fb0302d`, libdogecoin `b7891cf`, Netatalk `2721b62`.
 
 ### Noisy
 
