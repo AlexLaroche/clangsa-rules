@@ -15,6 +15,9 @@ reported with the flag as the checker, e.g. "-Wmisleading-indentation":
   -Wstring-compare          `s == "literal"` compares pointers
   -Wmisleading-indentation  `if (c) goto fail; goto fail;` (Apple goto fail)
   -Wunreachable-code        code that can never run
+Each TU's source file is also read for bidi control characters left open at
+the end of a line (Trojan Source, CVE-2021-42574; GCC's -Wbidi-chars, which
+clang lacks), reported as "bidi-control" (`--no-bidi` skips it).
 """
 import argparse
 import concurrent.futures as cf
@@ -67,6 +70,53 @@ def build_flags(entry):
     return out + ['-fno-color-diagnostics']
 
 
+BIDI_EMBED = {'‪': 'LRE', '‫': 'RLE', '‭': 'LRO', '‮': 'RLO'}
+BIDI_ISOLATE = {'⁦': 'LRI', '⁧': 'RLI', '⁨': 'FSI'}
+BIDI_PDF, BIDI_PDI = '‬', '⁩'
+
+
+def bidi_findings_text(path, text):
+    """Lines that end with a bidi embedding, override or isolate still open
+    (Trojan Source, CVE-2021-42574): it reorders how the rest of the line is
+    displayed, so a comment or string can hide or fake code. Clang has no
+    warning for it (GCC's -Wbidi-chars). Pairs follow the Unicode bidi
+    algorithm: PDF closes the innermost embedding/override unless an isolate is
+    open inside it, PDI closes the innermost isolate and whatever it encloses;
+    unmatched closers are ignored. Reports the first control left open."""
+    out = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        stack = []  # (is_isolate, col, char)
+        for col, ch in enumerate(line, 1):
+            if ch in BIDI_EMBED or ch in BIDI_ISOLATE:
+                stack.append((ch in BIDI_ISOLATE, col, ch))
+            elif ch == BIDI_PDF:
+                if stack and not stack[-1][0]:
+                    stack.pop()
+            elif ch == BIDI_PDI:
+                for i in range(len(stack) - 1, -1, -1):
+                    if stack[i][0]:
+                        del stack[i:]
+                        break
+        if stack:
+            _, col, ch = stack[0]
+            name = BIDI_EMBED.get(ch) or BIDI_ISOLATE[ch]
+            out.append({'file': path, 'line': lineno, 'col': col, 'checker': 'bidi-control',
+                        'message': f'unterminated bidirectional control character U+{ord(ch):04X} '
+                                   f'({name}): the rest of the line is displayed reordered, so the '
+                                   'code may not do what it appears to do (Trojan Source, '
+                                   'CVE-2021-42574)'})
+    return out
+
+
+def bidi_findings(entry):
+    path = os.path.normpath(os.path.join(entry['directory'], entry['file']))
+    try:
+        text = open(path, encoding='utf-8', errors='replace').read()
+    except OSError:
+        return []
+    return bidi_findings_text(path, text)
+
+
 def warnings_cmd(entry, warnings):
     return build_flags(entry) + ['-fsyntax-only', '-Wno-everything'] + [f'-W{w}' for w in warnings]
 
@@ -92,7 +142,7 @@ def diags(entry, stderr, keep):
     return out
 
 
-def run(entry, plugin, checkers, disabled, report, timeout, warnings=()):
+def run(entry, plugin, checkers, disabled, report, timeout, warnings=(), bidi=True):
     cmd = analysis_cmd(entry, plugin, checkers, disabled)
     try:
         p = subprocess.run(cmd, cwd=entry['directory'], capture_output=True,
@@ -108,6 +158,8 @@ def run(entry, plugin, checkers, disabled, report, timeout, warnings=()):
             found += diags(entry, w.stderr, lambda c: c in wanted)
         except subprocess.TimeoutExpired:
             pass
+    if bidi:
+        found += bidi_findings(entry)
     errors = ERROR.findall(p.stderr)
     if not errors and p.returncode != 0:
         errors = [f'clang exited with code {p.returncode}']
@@ -128,13 +180,16 @@ def main():
     ap.add_argument('--warnings', default=DEFAULT_WARNINGS,
                     help='comma-separated compiler warnings (without -W) to collect in a '
                          'parse-only pass; empty to skip it')
+    ap.add_argument('--no-bidi', dest='bidi', action='store_false',
+                    help='skip the scan for unterminated bidi control characters')
     a = ap.parse_args()
     warnings = tuple(w for w in a.warnings.split(',') if w)
 
     entries = [e for e in json.load(open(a.cdb)) if re.search(a.filter, e['file'])]
     seen, findings, failures = set(), [], []
     with cf.ThreadPoolExecutor(a.jobs) as ex:
-        futs = [ex.submit(run, e, a.plugin, a.checkers, a.disable, a.report, a.timeout, warnings)
+        futs = [ex.submit(run, e, a.plugin, a.checkers, a.disable, a.report, a.timeout, warnings,
+                          a.bidi)
                 for e in entries]
         for i, fut in enumerate(cf.as_completed(futs), 1):
             tu, found, err = fut.result()

@@ -59,6 +59,16 @@ catch bug patterns no checker needs to reimplement, reported with the flag as
 the checker: `-Wstring-compare` (`s == "literal"`), `-Wmisleading-indentation`
 (Apple's `goto fail`) and `-Wunreachable-code`. `--warnings ''` skips it.
 
+It also reads each TU's source file for bidirectional control characters
+(U+202A-202E, U+2066-2069) left open at the end of a line, reported as
+`bidi-control`: Trojan Source (CVE-2021-42574), where a comment or string
+reorders how the rest of the line is displayed, so the code does not do what
+it appears to do. GCC has `-Wbidi-chars`; clang has no such warning. Text
+closed again on the same line (real right-to-left strings) is not reported.
+`--no-bidi` skips it. It flags the commenting-out, early-return and
+stretched-string samples of the Trojan Source paper and finds nothing in the
+~6,400 files of the noise corpora.
+
 `scan-build -load-plugin build/RaptorCheckers.so -enable-checker raptor make`
 also works.
 
