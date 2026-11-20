@@ -6,8 +6,17 @@
   "fixed": "3810e7b362e7bdef00ad33ae683a49aa7ab19e0d",
   "fixed_note": "Fix bug #72551 and bug #72552 - check before converting size_t->int: mcrypt_generic/mdecrypt_generic sized the buffer with data_size = (int)data_len and copied data_len bytes; the fix rejects a length the cast changed (PHP 7.0.9)",
   "setup": [
-    ["./buildconf", "--force"],
-    ["./configure", "--disable-all"]
+    [
+      "env",
+      "PHP_AUTOCONF=autoconf2.69",
+      "PHP_AUTOHEADER=autoheader2.69",
+      "./buildconf",
+      "--force"
+    ],
+    [
+      "./configure",
+      "--disable-all"
+    ]
   ],
   "checker": "raptor.NarrowedCopyLength",
   "args": [
@@ -20,9 +29,15 @@
   ],
   "files": {
     "ext/mcrypt/mcrypt.c": [
-      {"re": "^\\t\\tdata_size = \\(int\\)data_len;$", "after": "^PHP_FUNCTION\\(mcrypt_generic\\)$"},
-      {"re": "^\\t\\tdata_size = \\(int\\)data_len;$", "after": "^PHP_FUNCTION\\(mdecrypt_generic\\)$"}
+      {
+        "re": "^\\t\\tdata_size = \\(int\\)data_len;$",
+        "after": "^PHP_FUNCTION\\(mcrypt_generic\\)$"
+      },
+      {
+        "re": "^\\t\\tdata_size = \\(int\\)data_len;$",
+        "after": "^PHP_FUNCTION\\(mdecrypt_generic\\)$"
+      }
     ]
   },
-  "setup_note": "ext/mcrypt needs mcrypt.h (libmcrypt-dev); configure --disable-all only generates main/php_config.h, and HAVE_LIBMCRYPT is passed on the command line"
+  "setup_note": "PHP 7.0's configure.in needs autoconf 2.69 (2.72 generates a configure with a shell syntax error), hence autoconf2.69; ext/mcrypt needs mcrypt.h (libmcrypt-dev); configure --disable-all only generates main/php_config.h, and HAVE_LIBMCRYPT is passed on the command line"
 }
