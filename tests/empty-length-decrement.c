@@ -142,3 +142,34 @@ void reverse(unsigned char *data, const unsigned char *src, size_t len) {
   for (data += len - 1; len > 0; len--)
     *data-- = *src++;
 }
+
+// Values only encoded or compared, never used to reach memory (brotli
+// StoreVarLenUint8(num_types - 1), Log2Floor(alphabet_size - 1), OpenSSL
+// `if (factornum - 2 < pnum)`).
+void store_var_len(size_t n, size_t *ix);
+size_t log2_floor(size_t v);
+size_t encode_types(size_t num_types, size_t alphabet_size, size_t *ix) {
+  // ok: raptor-empty-length-decrement
+  store_var_len(num_types - 1, ix);
+  // ok: raptor-empty-length-decrement
+  return log2_floor(alphabet_size - 1);
+}
+int too_many(size_t factornum, size_t pnum) {
+  // ok: raptor-empty-length-decrement
+  if (factornum - 2 < pnum)
+    return 1;
+  return 0;
+}
+
+// Pointer arithmetic and a copy size reach memory (OpenSSL BUF_reverse-like,
+// a local passed to memcpy).
+void reverse_to(unsigned char *out, size_t size) {
+  // ruleid: raptor-empty-length-decrement
+  out += size - 1;
+  *out = 0;
+}
+void copy_but_last(char *dst, const char *src, size_t src_len) {
+  // ruleid: raptor-empty-length-decrement
+  size_t n = src_len - 1;
+  memcpy(dst, src, n);
+}

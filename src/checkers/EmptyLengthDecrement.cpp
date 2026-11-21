@@ -20,6 +20,7 @@
 #include "Registry.h"
 #include "clang/AST/ParentMap.h"
 #include <algorithm>
+#include <functional>
 #include "clang/StaticAnalyzer/Core/Checker.h"
 
 using namespace clang;
@@ -99,6 +100,76 @@ public:
         P = PM.getParent(P);
       return P;
     };
+    // Does the value of E reach memory: an index, pointer arithmetic, a
+    // copy/fill/allocation size or a loop bound, directly or through a local
+    // it initialises (one level)?
+    std::function<bool(const Expr *, int)> reaches = [&](const Expr *E, int Depth) -> bool {
+      const Stmt *Cur = E;
+      for (const Stmt *P = PM.getParent(Cur); P; Cur = P, P = PM.getParent(P)) {
+        if (isa<ParenExpr>(P) || isa<ImplicitCastExpr>(P) || isa<CStyleCastExpr>(P) ||
+            isa<ConditionalOperator>(P))
+          continue;
+        if (const auto *AS = dyn_cast<ArraySubscriptExpr>(P))
+          return Cur == AS->getIdx();
+        if (const auto *U = dyn_cast<UnaryOperator>(P)) {
+          if (U->getOpcode() == UO_Minus || U->getOpcode() == UO_Plus)
+            continue;
+          return false;
+        }
+        if (const auto *B = dyn_cast<BinaryOperator>(P)) {
+          if (B->getType()->isPointerType() || B->getLHS()->getType()->isPointerType())
+            return B->isAdditiveOp() || B->getOpcode() == BO_AddAssign ||
+                   B->getOpcode() == BO_SubAssign;
+          if (B->isComparisonOp()) {
+            const Stmt *L = PM.getParent(B);
+            while (L && (isa<ParenExpr>(L) || isa<ImplicitCastExpr>(L) ||
+                         (isa<BinaryOperator>(L) && cast<BinaryOperator>(L)->isLogicalOp())))
+              L = PM.getParent(L);
+            return L && (isa<ForStmt>(L) || isa<WhileStmt>(L) || isa<DoStmt>(L));
+          }
+          if (B->getOpcode() == BO_Assign && Cur == B->getRHS() && Depth == 0) {
+            const auto *DR = dyn_cast<DeclRefExpr>(B->getLHS()->IgnoreParenImpCasts());
+            const auto *V = DR ? dyn_cast<VarDecl>(DR->getDecl()) : nullptr;
+            if (!V || !V->hasLocalStorage())
+              return false;
+            bool R = false;
+            forEach<DeclRefExpr>(Body, [&](const DeclRefExpr *U) {
+              if (!R && U != DR && U->getDecl() == V)
+                R = reaches(U, 1);
+            });
+            return R;
+          }
+          if (B->isAssignmentOp() || B->isLogicalOp() || B->getOpcode() == BO_Comma)
+            return false;
+          continue; // arithmetic: * / % + - << >> & |
+        }
+        if (const auto *CE = dyn_cast<CallExpr>(P)) {
+          StringRef N = raptor::calleeName(CE);
+          N.consume_front("__builtin_");
+          return raptor::isOneOf(N, {"memcpy", "memmove", "memset", "memcmp", "mempcpy",
+                                     "strncpy", "strncat", "strndup", "strncmp", "malloc",
+                                     "calloc", "realloc", "alloca", "read", "write",
+                                     "fread", "fwrite", "snprintf", "vsnprintf"});
+        }
+        if (const auto *DS = dyn_cast<DeclStmt>(P)) {
+          if (Depth > 0)
+            return false;
+          for (const Decl *Dc : DS->decls())
+            if (const auto *V = dyn_cast<VarDecl>(Dc); V && V->getInit() && V->hasLocalStorage()) {
+              bool R = false;
+              forEach<DeclRefExpr>(Body, [&](const DeclRefExpr *U) {
+                if (!R && U->getDecl() == V)
+                  R = reaches(U, 1);
+              });
+              if (R)
+                return true;
+            }
+          return false;
+        }
+        return false;
+      }
+      return false;
+    };
     std::set<const ParmVarDecl *> Reported;
     std::vector<const BinaryOperator *> Subs;
     forEach<BinaryOperator>(Body, [&](const BinaryOperator *BO) {
@@ -134,7 +205,9 @@ public:
       auto K = intValue(BO->getRHS(), Ctx);
       if (!K || K->isNegative() || K->isZero())
         continue;
-      Reported.insert(P); // first decrement only, guarded or not
+      if (!reaches(BO, 0))
+        continue;
+      Reported.insert(P); // first decrement that reaches memory, guarded or not
       SourceLocation Use = SM.getExpansionLoc(BO->getBeginLoc());
       auto It = Seen.find(P);
       if (It != Seen.end() && !SM.isBeforeInTranslationUnit(Use, It->second))

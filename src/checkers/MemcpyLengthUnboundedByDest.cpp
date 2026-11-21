@@ -65,7 +65,11 @@ void lengthKeys(const Stmt *S, std::set<std::string> &Keys) {
   if (const auto *CE = dyn_cast<CallExpr>(S)) {
     if (raptor::isOneOf(raptor::calleeName(CE), {"strlen", "wcslen", "strnlen"}) &&
         CE->getNumArgs() >= 1) {
-      Keys.insert("strlen:" + raptor_mem::keyOf(CE->getArg(0)));
+      // strlen(s) bounds s and pointer differences inside it (`cp - s`)
+      std::string K = raptor_mem::keyOf(CE->getArg(0));
+      Keys.insert("strlen:" + K);
+      if (!K.empty())
+        Keys.insert(K);
       return;
     }
     for (const Expr *A : CE->arguments())
@@ -107,6 +111,53 @@ std::optional<uint64_t> typeMax(const Expr *E, const ASTContext &Ctx) {
   return T->isSignedIntegerType() ? (uint64_t(1) << (W - 1)) - 1 : (uint64_t(1) << W) - 1;
 }
 
+// Largest value of a length built from constants: `8 + (n % 8 ? 1 : 0)`,
+// `x % 16`, `c ? 4 : 8`. None when it depends on anything else.
+std::optional<uint64_t> maxValue(const Expr *E, const ASTContext &Ctx, int Depth = 0) {
+  if (!E || Depth > 8)
+    return std::nullopt;
+  E = E->IgnoreParenCasts();
+  if (auto V = intValue(E, Ctx))
+    return V->isNegative() ? std::nullopt : std::optional<uint64_t>(V->getZExtValue());
+  if (const auto *CO = dyn_cast<ConditionalOperator>(E)) {
+    auto A = maxValue(CO->getTrueExpr(), Ctx, Depth + 1);
+    auto B = maxValue(CO->getFalseExpr(), Ctx, Depth + 1);
+    if (A && B)
+      return std::max(*A, *B);
+    return std::nullopt;
+  }
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    auto R = maxValue(BO->getRHS(), Ctx, Depth + 1);
+    if (BO->getOpcode() == BO_Rem && R && *R > 0)
+      return *R - 1;
+    if (BO->getOpcode() == BO_And && R)
+      return *R;
+    auto L = maxValue(BO->getLHS(), Ctx, Depth + 1);
+    if (!L || !R)
+      return std::nullopt;
+    if (BO->getOpcode() == BO_Add && *L < (1ULL << 40) && *R < (1ULL << 40))
+      return *L + *R;
+    if (BO->getOpcode() == BO_Mul && *L < (1ULL << 20) && *R < (1ULL << 20))
+      return *L * *R;
+  }
+  return std::nullopt;
+}
+
+// A call to an algorithm's size getter (EVP_MD_get_size,
+// EVP_CIPHER_get_iv_length, mbedtls_md_get_size): the size is fixed by the
+// algorithm, not by input. strlen() and friends are not getters.
+bool sizeGetter(const Expr *E) {
+  const auto *CE = dyn_cast<CallExpr>(E->IgnoreParenCasts());
+  if (!CE)
+    return false;
+  std::string N = raptor::calleeName(CE).lower();
+  StringRef S(N);
+  if (S.starts_with("str") || S.starts_with("wcs"))
+    return false;
+  bool Size = S.ends_with("size") || S.ends_with("length") || S.ends_with("_len");
+  return Size && (S.contains("get") || S.ends_with("_size") || S.ends_with("_length"));
+}
+
 class MemcpyLengthUnboundedByDestChecker : public Checker<check::ASTCodeBody> {
 public:
   void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr, BugReporter &BR) const {
@@ -144,6 +195,14 @@ public:
         const Expr *Var = Side ? BO->getRHS() : BO->getLHS();
         const Expr *Lim = Side ? BO->getLHS() : BO->getRHS();
         auto C = intValue(Lim, Ctx);
+        // a local set once from a constant (`s_len = sizeof(scratch)`)
+        if (!C)
+          if (const auto *LD = dyn_cast<DeclRefExpr>(Lim->IgnoreParenImpCasts());
+              LD && isa<VarDecl>(LD->getDecl()) && cast<VarDecl>(LD->getDecl())->hasLocalStorage()) {
+            auto It = Defs.find(LD->getDecl()->getNameAsString());
+            if (It != Defs.end() && It->second.size() == 1)
+              C = intValue(It->second[0], Ctx);
+          }
         if (C && C->isNegative())
           continue;
         std::optional<uint64_t> V;
@@ -151,6 +210,15 @@ public:
           V = C->getZExtValue();
         std::set<std::string> Keys;
         lengthKeys(Var, Keys);
+        // `sp >= cp + sizeof(marker)` bounds `sp - cp`
+        if (!C)
+          if (const auto *Add = dyn_cast<BinaryOperator>(Lim->IgnoreParenImpCasts());
+              Add && Add->getOpcode() == BO_Add && Add->getType()->isPointerType())
+            if (auto K2 = intValue(Add->getRHS(), Ctx); K2 && !K2->isNegative()) {
+              V = K2->getZExtValue();
+              lengthKeys(Add->getLHS(), Keys);
+              Lim = Add->getRHS();
+            }
         for (const std::string &K : Keys)
           Bounds.push_back({K, V, Lim, BO});
       }
@@ -194,7 +262,7 @@ public:
             isa<LabelStmt>(P)) {
           if (const auto *W = dyn_cast<WhileStmt>(P); W && N == W->getCond()) {
           } else if (const auto *F = dyn_cast<ForStmt>(P); F && N == F->getCond()) {
-          } else if (isa<LabelStmt>(P)) {
+          } else if (isa<LabelStmt>(P) || isa<CaseStmt>(P) || isa<DefaultStmt>(P)) {
           } else {
             return false;
           }
@@ -231,20 +299,80 @@ public:
           Sources.push_back(Def);
         }
       }
+      // A length that cannot exceed the destination, or comes from a size
+      // getter, whatever its variables hold.
+      if (auto MV = maxValue(Len, Ctx); MV && *MV <= Size)
+        return;
+      if (sizeGetter(Len))
+        return;
+      // A global or static length: configuration validated where it is set.
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(Len->IgnoreParenCasts()))
+        if (const auto *V = dyn_cast<VarDecl>(DRE->getDecl()); V && !V->hasLocalStorage())
+          return;
+      // A length field of an object other than the source: a parameter
+      // set (`pParams->cbHashOutput`), not the size of what is copied. The
+      // source's own size field (`memcpy(buf, a->s, a->length)`) is kept.
+      if (const auto *LME = dyn_cast<MemberExpr>(Len->IgnoreParenCasts())) {
+        const Expr *SrcBase = nullptr;
+        if (const auto *SM2 = dyn_cast<MemberExpr>(raptor::strip(CE->getArg(1))))
+          SrcBase = SM2->getBase();
+        if (!SrcBase || !sameExpr(LME->getBase(), SrcBase))
+          return;
+      }
       // A plain parameter: the caller's contract.
       if (const auto *DRE = dyn_cast<DeclRefExpr>(Len->IgnoreParenImpCasts());
           DRE && isa<ParmVarDecl>(DRE->getDecl()))
         return;
       // A source array no larger than the destination.
       std::string SrcName;
-      if (uint64_t Src = destBytes(CE->getArg(1), Ctx, SrcName); Src && Src <= Size)
+      const Expr *SrcE = raptor::strip(CE->getArg(1));
+      if (const auto *UO = dyn_cast<UnaryOperator>(SrcE); UO && UO->getOpcode() == UO_AddrOf)
+        if (const auto *AS = dyn_cast<ArraySubscriptExpr>(raptor::strip(UO->getSubExpr())))
+          if (auto I = intValue(AS->getIdx(), Ctx); I && I->isZero())
+            SrcE = AS->getBase(); // &a[0]
+      if (uint64_t Src = destBytes(SrcE, Ctx, SrcName); Src && Src <= Size)
         return;
       // A length kept in the destination's own object (`ctx->iv`, `ctx->ivlen`).
       const auto *DstME = dyn_cast<MemberExpr>(raptor::strip(CE->getArg(0)));
       const Expr *DstBase = DstME ? DstME->getBase() : nullptr;
-      if (const auto *LME = dyn_cast<MemberExpr>(Len->IgnoreParenImpCasts());
-          LME && DstBase && sameExpr(LME->getBase(), DstBase))
-        return;
+      // ... also one level down (`pKey->params.cbHashOutput` for `pKey->abSeed`)
+      // or scaled (`r->used * sizeof(digit)` for `r->dp`)
+      if (DstBase) {
+        bool Own = false;
+        forEach<MemberExpr>(Len, [&](const MemberExpr *LME) {
+          const Expr *B = LME->getBase();
+          for (int I = 0; I < 3 && B && !Own; ++I) {
+            Own = sameExpr(B, DstBase);
+            const auto *BM = dyn_cast<MemberExpr>(B->IgnoreParenImpCasts());
+            B = BM ? BM->getBase() : nullptr;
+          }
+        });
+        if (Own)
+          return;
+      }
+      // A token the parser bounded: `&tok` passed to a call that also takes
+      // a constant that fits (`str_quotedword(&line, &tok, MAX_LEN)`), and
+      // the length read from it (`str_len(&tok)`).
+      {
+        bool Parsed = false;
+        forEach<CallExpr>(Body, [&](const CallExpr *PC) {
+          if (Parsed || PC == CE)
+            return;
+          bool Fits = false;
+          for (const Expr *A : PC->arguments())
+            if (auto C = intValue(A, Ctx); C && !C->isNegative() && C->getZExtValue() >= 2 &&
+                                            C->getZExtValue() <= Size + 1)
+              Fits = true;
+          if (!Fits)
+            return;
+          for (const Expr *A : PC->arguments())
+            if (const auto *U = dyn_cast<UnaryOperator>(A->IgnoreParenImpCasts());
+                U && U->getOpcode() == UO_AddrOf && containsExpr(Len, U->getSubExpr()))
+              Parsed = true;
+        });
+        if (Parsed)
+          return;
+      }
       // Every source of the length fits the destination by its type, or is
       // a remainder or mask that fits (`len % 16`).
       bool TypeFits = true;
@@ -259,6 +387,10 @@ public:
                (BO->getOpcode() == BO_And && C->getZExtValue() < Size)))
             continue;
         }
+        if (auto MV = maxValue(X, Ctx); MV && *MV <= Size)
+          continue;
+        if (sizeGetter(X))
+          continue;
         auto M = typeMax(X, Ctx);
         if (!M || *M > Size) {
           TypeFits = false;

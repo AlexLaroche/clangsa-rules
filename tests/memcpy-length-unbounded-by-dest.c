@@ -244,3 +244,177 @@ void cts_tail(const uint8_t *in, size_t total) {
   memcpy(tmp, in, residue);
   (void)tmp;
 }
+
+// A length whose largest value fits (cfb64ede: 8 + (num % 8 ? 1 : 0)).
+void shift_ovec(uint8_t *in, int num) {
+  uint8_t ovec[16];
+  memcpy(ovec, in, 16);
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memmove(ovec, ovec + num / 8, 8 + (num % 8 ? 1 : 0));
+}
+
+// A length from an algorithm's size getter (EVP_CIPHER_get_iv_length,
+// EVP_MD_get_size): fixed by the algorithm, not by input.
+typedef struct evp_cipher_st EVP_CIPHER;
+int EVP_CIPHER_get_iv_length(const EVP_CIPHER *);
+int EVP_MD_get_size(const void *);
+void set_iv(const EVP_CIPHER *c, const void *md, const uint8_t *aiv, const uint8_t *d) {
+  uint8_t iv[16], digest[64];
+  int ivlen = EVP_CIPHER_get_iv_length(c);
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memcpy(iv, aiv, ivlen);
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memcpy(digest, d, (size_t)EVP_MD_get_size(md));
+}
+
+// SymCrypt: a length from the destination's own object, one level down
+// (pKey->params.cbHashOutput), and a source written as &array[0].
+typedef struct {
+  struct {
+    uint32_t cbHashOutput;
+  } params;
+  uint8_t abSeed[64];
+} xmss_key;
+void import_seed(xmss_key *pKey, const uint8_t *pbBlob) {
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memcpy(pKey->abSeed, pbBlob, pKey->params.cbHashOutput);
+}
+typedef struct {
+  uint8_t macBlock[16];
+  uint32_t bytesInMacBlock;
+} gcm_state;
+void gcm_flush(const gcm_state *pState) {
+  uint8_t buf[16];
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memcpy(buf, &pState->macBlock[0], pState->bytesInMacBlock);
+  (void)buf;
+}
+
+// A bounded expression over a variable that is reassigned (cfb64ede `num`).
+void shift_ovec2(uint8_t *in, const int *pnum) {
+  uint8_t ovec[16];
+  int num = *pnum;
+  memcpy(ovec, in, 16);
+  num = num * 8;
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memmove(ovec, ovec + num / 8, 8 + (num % 8 ? 1 : 0));
+}
+
+// A global length, validated where it is set (OpenSSL apps/rehash.c
+// evpmdsize).
+static int evpmdsize;
+void store_digest(const uint8_t *digest) {
+  uint8_t d[64];
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memcpy(d, digest, (size_t)evpmdsize);
+  (void)d;
+}
+
+// A length field of a third object: algorithm parameters (SymCrypt
+// pParams->cbHashOutput, OpenSSL P->key_length, info->Npk), not the size
+// of the source being copied.
+typedef struct {
+  uint32_t cbHashOutput;
+} xmss_params;
+void xmss_node(const xmss_params *pParams, const uint8_t *pbInput) {
+  uint8_t tmp[64];
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memcpy(tmp, pbInput, pParams->cbHashOutput);
+  (void)tmp;
+}
+
+// --- noise seen in curl, wolfSSL, nghttp3 ---
+
+// A count kept in the destination's own object, scaled (wolfSSL sp_int
+// `r->used * sizeof(sp_int_digit)`, nghttp3 `rblk->n * sizeof(node)`).
+typedef struct {
+  unsigned used;
+  uint64_t dp[8];
+} sp_int;
+void sp_copy(sp_int *r, const uint64_t *t) {
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memcpy(r->dp, t, r->used * sizeof(uint64_t));
+}
+
+// A token whose length the parser bounded (curl altsvc:
+// curlx_str_quotedword(&line, &date, MAX_ALTSVC_DATELEN)).
+struct Curl_str {
+  const char *str;
+  size_t len;
+};
+int str_quotedword(const char **linep, struct Curl_str *out, size_t max);
+size_t str_len(const struct Curl_str *s);
+const char *str_ptr(const struct Curl_str *s);
+#define MAX_ALTSVC_DATELEN 256
+int parse_date(const char *line) {
+  struct Curl_str date;
+  if (str_quotedword(&line, &date, MAX_ALTSVC_DATELEN))
+    return -1;
+  char dbuf[MAX_ALTSVC_DATELEN + 1];
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memcpy(dbuf, str_ptr(&date), str_len(&date));
+  dbuf[str_len(&date)] = 0;
+  return dbuf[0];
+}
+
+// Clamped against a local set once from a constant (curl http2 GOAWAY:
+// `s_len = CURL_ARRAYSIZE(scratch)`).
+typedef struct {
+  const uint8_t *opaque_data;
+  size_t opaque_data_len;
+} goaway_t;
+int goaway_reason(const goaway_t *g) {
+  char scratch[128];
+  size_t s_len = sizeof(scratch);
+  size_t len = (g->opaque_data_len < s_len) ? g->opaque_data_len : s_len - 1;
+  if (len)
+    // ok: raptor-memcpy-length-unbounded-by-dest
+    memcpy(scratch, g->opaque_data, len);
+  scratch[len] = '\0';
+  return scratch[0];
+}
+
+// --- noise seen in HAProxy and OpenSSH ---
+
+// A guard in a `case` before the copy (HAProxy cfgparse.c current_cwd).
+static char current_cwd[256];
+int set_cwd(int kind, const char *beg, const char *end) {
+  switch (kind) {
+  case 1:
+    if (end - beg >= sizeof(current_cwd))
+      return 0;
+    // ok: raptor-memcpy-length-unbounded-by-dest
+    memcpy(current_cwd, beg, end - beg);
+    current_cwd[end - beg] = 0;
+    break;
+  }
+  return 1;
+}
+
+// A pointer comparison (OpenSSH hostfile.c check_markers:
+// `sp >= cp + sizeof(marker)`).
+int check_marker(const char *cp, const char *sp) {
+  char marker[32];
+  if (sp <= cp + 1 || sp >= cp + sizeof(marker))
+    return -1;
+  // ok: raptor-memcpy-length-unbounded-by-dest
+  memcpy(marker, cp, sp - cp);
+  marker[sp - cp] = '\0';
+  return marker[0];
+}
+
+// The whole string checked, then a prefix of it copied (OpenSSH session.c
+// safely_chroot: `strlen(path) >= sizeof(component)`).
+int chroot_components(const char *path) {
+  char component[256];
+  const char *cp = path;
+  if (strlen(path) >= sizeof(component))
+    return -1;
+  while ((cp = strchr(cp, '/')) != NULL) {
+    cp++;
+    // ok: raptor-memcpy-length-unbounded-by-dest
+    memcpy(component, path, cp - path);
+    component[cp - path] = '\0';
+  }
+  return component[0];
+}
