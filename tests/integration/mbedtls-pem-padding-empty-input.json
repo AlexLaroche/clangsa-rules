@@ -1,0 +1,19 @@
+{
+  "name": "mbedtls-pem-padding-empty-input",
+  "cve": "CVE-2025-52497",
+  "repo": "https://github.com/Mbed-TLS/mbedtls.git",
+  "vulnerable": "9325883d9fb270cae63af5a254eb6a855813a189",
+  "fixed": "6165e715899a9b370851e2868fe312d7e0a2cb83",
+  "fixed_note": "Add fix for PEM underflow (3.6.4): reject input_len < 1 in pem_check_pkcs_padding()",
+  "setup": [],
+  "checker": "raptor.EmptyLengthDecrement",
+  "args": [
+    "-Iinclude",
+    "-Ilibrary"
+  ],
+  "files": {
+    "library/pem.c": [
+      "size_t pad_len = input\\[input_len - 1\\];"
+    ]
+  }
+}

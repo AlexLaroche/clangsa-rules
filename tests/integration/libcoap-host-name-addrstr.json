@@ -1,0 +1,22 @@
+{
+  "name": "libcoap-host-name-addrstr",
+  "cve": "CVE-2025-34468",
+  "repo": "https://github.com/obgm/libcoap.git",
+  "vulnerable": "1cae0467287011f50fa1166bfa9c73d255e48a6a",
+  "fixed": "30db3eaa1f0464722ebea2ca2d5084aebfbd344d",
+  "fixed_note": "coap_address.c: Validate length of provided host name (reject >= sizeof(addrstr))",
+  "setup": [
+    ["cmake", "-S", ".", "-B", "build-raptor", "-DENABLE_DTLS=OFF", "-DENABLE_DOCS=OFF", "-DENABLE_EXAMPLES=OFF", "-DENABLE_TESTS=OFF"]
+  ],
+  "checker": "raptor.MemcpyLengthUnboundedByDest",
+  "args": [
+    "-Iinclude",
+    "-Ibuild-raptor",
+    "-Ibuild-raptor/include"
+  ],
+  "files": {
+    "src/coap_address.c": [
+      "memcpy\\(addrstr, address->s, address->length\\);"
+    ]
+  }
+}

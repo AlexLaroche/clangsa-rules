@@ -1,0 +1,26 @@
+{
+  "name": "capstone-skipdata-insn-bytes",
+  "cve": "CVE-2025-67873",
+  "repo": "https://github.com/capstone-engine/capstone.git",
+  "vulnerable": "2c7797182a1618be12017d7d41e0b6581d5d529e",
+  "fixed": "cbef767ab33b82166d263895f24084b75b316df3",
+  "fixed_note": "Merge of the skipdata overflow fix: clamp the user callback's byte count to sizeof(insn->bytes)",
+  "setup": [],
+  "checker": "raptor.MemcpyLengthUnboundedByDest",
+  "args": [
+    "-I.",
+    "-Iinclude"
+  ],
+  "files": {
+    "cs.c": {
+      "vulnerable": [
+        "memcpy\\(insn_cache->bytes, buffer, skipdata_bytes\\);",
+        "memcpy\\(insn->bytes, \\*code, skipdata_bytes\\);"
+      ],
+      "fixed": [
+        "memcpy\\(insn_cache->bytes, buffer,$",
+        "memcpy\\(insn->bytes, \\*code,$"
+      ]
+    }
+  }
+}

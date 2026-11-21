@@ -14,7 +14,11 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `libexif-save-entry` | CVE-2020-0093 | `raptor.CopyIgnoresSourceSize` | libexif `154189b` → `5ae5973` (0.6.22) |
 | `libmicrodns-rr-decode` | CVE-2020-6072 | `raptor.IgnoredStatusReturn` | libmicrodns `0103f40` → `89de67f` (0.1.2) |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
+| `libcoap-host-name-addrstr` | CVE-2025-34468 | `raptor.MemcpyLengthUnboundedByDest` | libcoap `1cae046` → `30db3ea` |
 | `mbedtls-lms-verify` | CVE-2025-49600 | `raptor.IgnoredStatusReturn` | Mbed TLS `caaffc1` → `ae449bf` (3.6.4, with `MBEDTLS_LMS_PRIVATE`) |
+| `mbedtls-pem-padding-empty-input` | CVE-2025-52497 | `raptor.EmptyLengthDecrement` | Mbed TLS `9325883` → `6165e71` (3.6.4) |
+| `suricata-shorten-string-empty-output` | CVE-2025-59149 | `raptor.EmptyLengthDecrement` | Suricata `d590fdf` → `38a2cba` (8.0.1) |
+| `capstone-skipdata-insn-bytes` | CVE-2025-67873 | `raptor.MemcpyLengthUnboundedByDest` | capstone `2c77971` → `cbef767` |
 | `openjpeg-pi-encode-include-size` | CVE-2026-6192 | `raptor.UncheckedAllocProduct` | OpenJPEG `1ad9bec` → `839936a` |
 | `radare2-str-append-int-length` | CVE-2026-14761 | `raptor.IntegerWraparound` | radare2 `8b25c77` → `a20a569` |
 | `gegl-rgbe-pixels-alloc` | CVE-2026-18300 | `raptor.UncheckedAllocProduct` | GEGL `cd4afd4` → `d3d2620` |
@@ -95,7 +99,9 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `raptor.DoubleFree` | 2 |
 | `raptor.DuplicateContainerInsert` | 2 |
 | `raptor.ElidableSecretWipe` | 2 |
+| `raptor.EmptyLengthDecrement` | 2 |
 | `raptor.LoopGuardOutpacedByWrites` | 2 |
+| `raptor.MemcpyLengthUnboundedByDest` | 2 |
 | `raptor.NarrowedCopyLength` | 2 |
 | `raptor.UncappedCreditReplenish` | 2 |
 | `raptor.UncheckedRandomRead` | 2 |

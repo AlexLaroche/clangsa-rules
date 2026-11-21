@@ -1,0 +1,24 @@
+{
+  "name": "suricata-shorten-string-empty-output",
+  "cve": "CVE-2025-59149",
+  "repo": "https://github.com/OISF/suricata.git",
+  "vulnerable": "d590fdfe42e995fd558315f0c24f9a352e21479d",
+  "fixed": "38a2cba5c397002047d84645f5ab770ff88020e1",
+  "fixed_note": "misc: harden string shortener (8.0.1, ticket #7861): return when output_size == 0",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "printf '#define HAVE_STDIO_H 1\\n#define HAVE_STDDEF_H 1\\n#define HAVE_STDINT_H 1\\n#define HAVE_STDBOOL_H 1\\n#define HAVE_STDARG_H 1\\n#define HAVE_STDLIB_H 1\\n#define HAVE_ERRNO_H 1\\n#define HAVE_UNISTD_H 1\\n#define HAVE_INTTYPES_H 1\\n#define HAVE_LIMITS_H 1\\n#define HAVE_CTYPE_H 1\\n#define HAVE_STRING_H 1\\n#define HAVE_STRINGS_H 1\\n#define HAVE_FCNTL_H 1\\n#define HAVE_TIME_H 1\\n#define HAVE_SYS_TYPES_H 1\\n#define HAVE_SYS_TIME_H 1\\n#define HAVE_POLL_H 1\\n#define HAVE_SYS_SOCKET_H 1\\n#define HAVE_NETINET_IN_H 1\\n#define HAVE_ARPA_INET_H 1\\n#define HAVE_NETDB_H 1\\n#define HAVE_PTHREAD_H 1\\n#define HAVE_SYS_STAT_H 1\\n#define HAVE_SYS_MMAN_H 1\\n#define HAVE_DIRENT_H 1\\n#define PCRE2_CODE_UNIT_WIDTH 8\\n#define TLS_C11 1\\n' > src/autoconf.h"
+    ]
+  ],
+  "checker": "raptor.EmptyLengthDecrement",
+  "args": [
+    "-Isrc"
+  ],
+  "files": {
+    "src/util-misc.c": [
+      "size_t half = \\(output_size - 1\\) / 2;"
+    ]
+  }
+}
