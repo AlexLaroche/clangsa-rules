@@ -1,0 +1,30 @@
+{
+  "name": "ndpi-address-cache-fscanf",
+  "cve": "CVE-2025-25066",
+  "repo": "https://github.com/ntop/nDPI.git",
+  "vulnerable": "e946f49aca13e4447a7d7b2acae6323a4531fb55",
+  "fixed": "678697b5eb6c3caa5dd5f8cccfe9eed8d13b94bb",
+  "fixed_note": "ndpi_address_cache_restore: bound the %s conversions to the ip/hostname buffers",
+  "setup": [
+    [
+      "./autogen.sh",
+      "--with-only-libndpi"
+    ]
+  ],
+  "checker": "raptor.InsecureApiScanf",
+  "args": [
+    "-DNDPI_LIB_COMPILATION",
+    "-Isrc/include",
+    "-Isrc/lib/third_party/include"
+  ],
+  "files": {
+    "src/lib/ndpi_cache.c": {
+      "vulnerable": [
+        "while\\(fscanf\\(fd, \"%s\\\\t%s\\\\t%u\\\\n\", ip, hostname, &epoch\\) > 0\\)"
+      ],
+      "fixed": [
+        "while\\(fscanf\\(fd, \"%32s\\\\t%255s\\\\t%u\\\\n\", ip, hostname, &epoch\\) > 0\\)"
+      ]
+    }
+  }
+}

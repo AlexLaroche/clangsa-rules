@@ -1,0 +1,35 @@
+{
+  "name": "coturn-aes-key-rand",
+  "cve": "CVE-2025-69217",
+  "repo": "https://github.com/coturn/coturn.git",
+  "vulnerable": "4e0d21e1b59106fd980167a522aa09829d349d17",
+  "fixed": "88ced471385869d7e7fbbc4766e78ef521b36af6",
+  "fixed_note": "generate_aes_128_key: draw the key from a CSPRNG instead of srand(time)/rand()",
+  "setup": [],
+  "checker": "raptor.InsecureApiRandSrand",
+  "args": [
+    "-DTURN_NO_PROMETHEUS",
+    "-DTURN_NO_HIREDIS",
+    "-DTURN_NO_MYSQL",
+    "-DTURN_NO_PQ",
+    "-DTURN_NO_MONGO",
+    "-DTURN_NO_SQLITE",
+    "-Isrc/apps/common",
+    "-Isrc/server",
+    "-Isrc/client",
+    "-Isrc/apps/relay",
+    "-Isrc"
+  ],
+  "files": {
+    "src/apps/relay/mainrelay.c": {
+      "vulnerable": [
+        "key\\[i\\] = \\(rand\\(\\) % 10\\) \\+ 48;",
+        {
+          "re": "key\\[i\\] = \\(rand\\(\\) % 26\\) \\+ (65|97);",
+          "count": 2
+        }
+      ],
+      "fixed": []
+    }
+  }
+}

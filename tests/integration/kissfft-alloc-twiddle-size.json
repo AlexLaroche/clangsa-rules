@@ -1,0 +1,18 @@
+{
+  "name": "kissfft-alloc-twiddle-size",
+  "cve": "CVE-2025-34297",
+  "repo": "https://github.com/mborgerding/kissfft.git",
+  "vulnerable": "7bce4153c6bc8aba2db0e889e576f9d00505cbe1",
+  "fixed": "1b08316582049c3716154caefc0deab8758506e3",
+  "fixed_note": "kiss_fft_alloc: reject nfft >= (SIZE_MAX - 2*sizeof(state))/sizeof(cpx) before computing memneeded",
+  "setup": [],
+  "checker": "raptor.IntegerWraparound",
+  "args": [
+    "-I."
+  ],
+  "files": {
+    "kiss_fft.c": [
+      "st = \\( kiss_fft_cfg\\)KISS_FFT_MALLOC\\( memneeded \\);"
+    ]
+  }
+}

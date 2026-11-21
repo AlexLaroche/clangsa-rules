@@ -178,6 +178,7 @@ class IntegerWraparoundChecker : public Checker<check::ASTCodeBody> {
 
     // `n = a * b;`, `n += b;`, `size_t n = a + b;` ... -> where n was computed
     llvm::DenseMap<const VarDecl *, llvm::SmallVector<SourceLocation, 2>> Computed;
+    llvm::DenseMap<const VarDecl *, llvm::SmallVector<const Expr *, 2>> ComputedFrom;
     auto Assign = binaryOperator(isAssignmentOperator(),
                                  hasLHS(ignoringParenImpCasts(
                                      declRefExpr(to(varDecl().bind("v"))))))
@@ -186,7 +187,10 @@ class IntegerWraparoundChecker : public Checker<check::ASTCodeBody> {
       const auto *BO = N.getNodeAs<BinaryOperator>("assign");
       if ((BO->getOpcode() == BO_Assign && isMulOrAdd(BO->getRHS(), Ctx)) ||
           BO->getOpcode() == BO_MulAssign || BO->getOpcode() == BO_AddAssign)
+      {
         Computed[N.getNodeAs<VarDecl>("v")].push_back(BO->getBeginLoc());
+        ComputedFrom[N.getNodeAs<VarDecl>("v")].push_back(BO->getRHS());
+      }
     }
     for (const BoundNodes &N : match(stmt(forEachDescendant(varDecl(hasInitializer(expr())).bind("v"))),
                                      *D->getBody(), Ctx)) {
@@ -194,9 +198,56 @@ class IntegerWraparoundChecker : public Checker<check::ASTCodeBody> {
       // hasInitializer() also matches a redeclaration (e.g. a block-scope
       // `extern T x;`) whose initializer is on another declaration; such a
       // VarDecl has no initializer of its own.
-      if (VD->getInit() && isMulOrAdd(VD->getInit(), Ctx))
+      if (VD->getInit() && isMulOrAdd(VD->getInit(), Ctx)) {
         Computed[VD].push_back(VD->getBeginLoc());
+        ComputedFrom[VD].push_back(VD->getInit());
+      }
     }
+
+    // Overflow guards before an allocation: a variable compared with a
+    // quotient (`n >= (SIZE_MAX - 2 * sizeof(h)) / sizeof(e)`, `c > LIM / 8`),
+    // the usual way to reject a factor whose product would wrap (kissfft
+    // after CVE-2025-34297).
+    llvm::SmallVector<std::pair<const VarDecl *, SourceLocation>, 4> DivGuards;
+    auto Rel = binaryOperator(hasAnyOperatorName("<", "<=", ">", ">=")).bind("rel");
+    for (const BoundNodes &N : match(findAll(Rel), *D->getBody(), Ctx)) {
+      const auto *BO = N.getNodeAs<BinaryOperator>("rel");
+      for (int Side = 0; Side < 2; ++Side) {
+        const Expr *Q = (Side ? BO->getLHS() : BO->getRHS())->IgnoreParenCasts();
+        const Expr *V = (Side ? BO->getRHS() : BO->getLHS())->IgnoreParenCasts();
+        const auto *Div = dyn_cast<BinaryOperator>(Q);
+        const auto *DRE = dyn_cast<DeclRefExpr>(V);
+        if (!Div || Div->getOpcode() != BO_Div || !DRE)
+          continue;
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+          DivGuards.push_back({VD, BO->getBeginLoc()});
+      }
+    }
+    // Is every non-constant variable in the size expression E (or in what a
+    // size variable was computed from) guarded by such a comparison before L?
+    auto guarded = [&](const Expr *E, SourceLocation L) {
+      llvm::SmallVector<const Expr *, 4> Exprs{E};
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenCasts()))
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+          for (const Expr *F : ComputedFrom.lookup(VD))
+            Exprs.push_back(F);
+      bool Any = false, All = true;
+      for (const Expr *X : Exprs)
+        for (const BoundNodes &M : match(findAll(declRefExpr(to(varDecl().bind("u")))), *X, Ctx)) {
+          const auto *U = M.getNodeAs<VarDecl>("u");
+          // the size variable itself is judged by what it was computed from;
+          // `static const` sizes are constants
+          if (Computed.count(U) ||
+              (U->getType().isConstQualified() && U->getInit() && isConstant(U->getInit(), Ctx)))
+            continue;
+          Any = true;
+          bool G = false;
+          for (auto &[GV, GL] : DivGuards)
+            G |= GV == U && SM.isBeforeInTranslationUnit(GL, L);
+          All &= G;
+        }
+      return Any && All;
+    };
 
     auto Call = callExpr().bind("call");
     for (const BoundNodes &N : match(findAll(Call), *D->getBody(), Ctx)) {
@@ -206,6 +257,8 @@ class IntegerWraparoundChecker : public Checker<check::ASTCodeBody> {
         if (I >= CE->getNumArgs())
           continue;
         const Expr *A = CE->getArg(I);
+        if (guarded(A, CE->getBeginLoc()))
+          continue;
         if (isMulOrAdd(A, Ctx)) {
           Bad = true;
           break;

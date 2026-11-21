@@ -1,0 +1,43 @@
+{
+  "name": "riot-l2filter-add-assert-length",
+  "cve": "CVE-2025-53888",
+  "repo": "https://github.com/RIOT-OS/RIOT.git",
+  "vulnerable": "41e2da1914518f9e7bdef4f805ca0f13ecf02d1e",
+  "fixed": "f6f7de4ccc107c018630e4c15500825caf02e1c2",
+  "fixed_note": "l2filter_add: reject addr_len > CONFIG_L2FILTER_ADDR_MAXLEN instead of asserting it",
+  "setup": [],
+  "checker": "raptor.AssertOnlyBound",
+  "args": [
+    "-Isys/include",
+    "-Icore/include",
+    "-Icore/lib/include",
+    "-Idrivers/include",
+    "-Icpu/native/include",
+    "-Iboards/native/include",
+    "-DCONFIG_L2FILTER_LISTSIZE=8",
+    "-DCONFIG_L2FILTER_ADDR_MAXLEN=8"
+  ],
+  "sparse": [
+    "sys",
+    "core",
+    "drivers/include",
+    "cpu/native/include",
+    "boards/native/include"
+  ],
+  "files": {
+    "sys/net/link_layer/l2filter/l2filter.c": {
+      "vulnerable": [
+        {
+          "re": "assert\\(list && addr && \\(addr_len <= CONFIG_L2FILTER_ADDR_MAXLEN\\)\\);",
+          "after": "^int l2filter_add"
+        }
+      ],
+      "fixed": [
+        {
+          "re": "^    assert\\(list && addr\\);$",
+          "after": "^int l2filter_add"
+        }
+      ]
+    }
+  }
+}

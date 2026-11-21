@@ -1,0 +1,34 @@
+{
+  "name": "libxml2-xinclude-uri-use-after-free",
+  "cve": "CVE-2022-49043",
+  "repo": "https://gitlab.gnome.org/GNOME/libxml2.git",
+  "vulnerable": "afc7e3a7f41e2e29ac36d4d7cbd0c0755558fa5d",
+  "fixed": "5a19e21605398cef6a8b1452477a8705cb41562b",
+  "fixed_note": "xinclude: Fix UAF in xmlXIncludeAddNode (URI freed before its use in the error message)",
+  "setup": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-raptor",
+      "-DLIBXML2_WITH_PYTHON=OFF",
+      "-DLIBXML2_WITH_ICU=OFF",
+      "-DLIBXML2_WITH_LZMA=OFF"
+    ]
+  ],
+  "checker": "raptor.UseAfterFree",
+  "args": [
+    "-Ibuild-raptor",
+    "-Ibuild-raptor/include",
+    "-Iinclude"
+  ],
+  "files": {
+    "xinclude.c": [
+      {
+        "re": "xmlXIncludeErr\\(ctxt, cur, XML_XINCLUDE_HREF_URI,$",
+        "after": "Invalid fragment identifier in URI %s use the xpointer attribute"
+      }
+    ]
+  }
+}

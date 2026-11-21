@@ -1,0 +1,23 @@
+{
+  "name": "cryptolib-kinit-system-command",
+  "cve": "CVE-2025-59534",
+  "repo": "https://github.com/nasa/CryptoLib.git",
+  "vulnerable": "b7ae4a93de65431cf8f6127ac6dd9110ba12f54c",
+  "fixed": "3ccb1b306026bb20a028fbfdcf18935f7345ed2f",
+  "fixed_note": "Run kinit without a shell (run_kinit) instead of system() on a formatted command line",
+  "setup": [],
+  "checker": "raptor.CommandInjection",
+  "args": [
+    "-Iinclude"
+  ],
+  "files": {
+    "src/crypto/kmc/cryptography_interface_kmc_crypto_service.template.c": {
+      "vulnerable": [
+        "int32_t kinit_status = system\\(kinit_shell_command\\);"
+      ],
+      "fixed": [
+        "status = run_kinit\\(cam_config->keytab_file_path, cam_config->username\\);"
+      ]
+    }
+  }
+}

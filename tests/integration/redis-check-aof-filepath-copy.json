@@ -1,0 +1,24 @@
+{
+  "name": "redis-check-aof-filepath-copy",
+  "cve": "CVE-2025-27151",
+  "repo": "https://github.com/redis/redis.git",
+  "vulnerable": "7f9212ec2206d8575b7035e9bd44c87a71654206",
+  "fixed": "643b5db235cb82508e72f11c7b4bbfc7dc39be56",
+  "fixed_note": "redis-check-aof: reject a file path longer than PATH_MAX before copying it into temp_filepath",
+  "setup": [],
+  "checker": "raptor.MemcpyLengthUnboundedByDest",
+  "args": [
+    "-Isrc",
+    "-Ideps/lua/src",
+    "-Ideps/hiredis",
+    "-Ideps/linenoise",
+    "-Ideps/hdr_histogram",
+    "-Ideps/fpconv",
+    "-Ideps/xxhash"
+  ],
+  "files": {
+    "src/redis-check-aof.c": [
+      "memcpy\\(temp_filepath, filepath, strlen\\(filepath\\) \\+ 1\\);"
+    ]
+  }
+}

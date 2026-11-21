@@ -1,0 +1,28 @@
+{
+  "name": "openssl-http-proxy-host-strncpy",
+  "cve": "CVE-2025-9232",
+  "repo": "https://github.com/openssl/openssl.git",
+  "vulnerable": "ca3539ef3ca389f1cfa8888c75309428e66d9958",
+  "fixed": "bbf38c034cdabd0a13330abcc4855c866f53d2e0",
+  "fixed_note": "Fix out-of-bounds read in OSSL_HTTP_adapt_proxy (use_proxy): terminate host after strncpy",
+  "setup": [
+    [
+      "./Configure",
+      "no-asm"
+    ],
+    [
+      "make",
+      "build_generated"
+    ]
+  ],
+  "checker": "raptor.UnterminatedStringStrncpy",
+  "args": [
+    "-I.",
+    "-Iinclude"
+  ],
+  "files": {
+    "crypto/http/http_lib.c": [
+      "strncpy\\(host, server \\+ 1, sl\\);"
+    ]
+  }
+}

@@ -468,3 +468,36 @@ unsigned char *file_buffers(void)
 	// ok: raptor-integer-wraparound
 	return malloc(kFileBufferSize * 2);
 }
+
+// kissfft kiss_fft_alloc, CVE-2025-34297: the twiddle-factor size wraps for
+// a huge nfft. The fix rejects nfft before computing the size, with the
+// usual division guard; a guard on another variable does not count.
+struct kiss_fft_state { int nfft, inverse; };
+typedef struct { float r, i; } kiss_fft_cpx;
+void *kiss_fft_alloc(int nfft)
+{
+	size_t memneeded = sizeof(struct kiss_fft_state)
+		+ sizeof(kiss_fft_cpx) * (nfft - 1);
+	// ruleid: raptor-integer-wraparound
+	return malloc(memneeded);
+}
+void *kiss_fft_alloc_fixed(int nfft)
+{
+	if (nfft >= (SIZE_MAX - 2 * sizeof(struct kiss_fft_state)) / sizeof(kiss_fft_cpx))
+		return NULL;
+	size_t memneeded = sizeof(struct kiss_fft_state)
+		+ sizeof(kiss_fft_cpx) * (nfft - 1);
+	// ok: raptor-integer-wraparound
+	return malloc(memneeded);
+}
+void *rows_alloc(size_t rows, size_t cols)
+{
+	if (cols > SIZE_MAX / 8)
+		return NULL;
+	// ok: raptor-integer-wraparound
+	void *a = malloc(cols * 8);
+	// ruleid: raptor-integer-wraparound
+	void *b = malloc(rows * 8);
+	free(a);
+	return b;
+}
