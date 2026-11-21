@@ -1,0 +1,22 @@
+{
+  "name": "mbedtls-lms-import-public-key-type",
+  "cve": "CVE-2025-49601",
+  "repo": "https://github.com/Mbed-TLS/mbedtls.git",
+  "vulnerable": "d9c141749b99956bcf6b064342484429eacceb86",
+  "fixed": "548e2dbf6511cc004c647657e43e848b83a19d2b",
+  "fixed_note": "Built-in lms driver: Added input guard (3.6.4): reject key_size < 4 before reading the type",
+  "setup": [],
+  "checker": "raptor.FixedOffsetReadNoLengthCheck",
+  "args": [
+    "-Iinclude",
+    "-Ilibrary"
+  ],
+  "files": {
+    "library/lms.c": {
+      "vulnerable": [
+        "type = \\(mbedtls_lms_algorithm_type_t\\) MBEDTLS_GET_UINT32_BE\\(key, PUBLIC_KEY_TYPE_OFFSET\\);"
+      ],
+      "fixed": []
+    }
+  }
+}

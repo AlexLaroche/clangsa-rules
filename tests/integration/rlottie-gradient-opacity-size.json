@@ -1,0 +1,31 @@
+{
+  "name": "rlottie-gradient-opacity-size",
+  "cve": "CVE-2025-0634",
+  "repo": "https://github.com/Samsung/rlottie.git",
+  "vulnerable": "e3026b1e1a516fff3c22d2b1b9f26ec864f89a82",
+  "fixed": "507ea027e47d3e1dc7ddbd9994621215eae7ebb9",
+  "fixed_note": "model::Gradient::populate: check colorPoints * 4 against size before subtracting",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "printf '' > config.h"
+    ]
+  ],
+  "checker": "raptor.UncheckedLengthDifference",
+  "args": [
+    "-std=c++14",
+    "-I.",
+    "-Iinc",
+    "-Isrc/vector",
+    "-Isrc/lottie"
+  ],
+  "files": {
+    "src/lottie/lottiemodel.cpp": {
+      "vulnerable": [
+        "auto   opacityArraySize = size - colorPoints \\* 4;"
+      ],
+      "fixed": []
+    }
+  }
+}

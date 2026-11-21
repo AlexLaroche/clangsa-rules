@@ -1,0 +1,25 @@
+{
+  "name": "bacnet-npdu-expected-reply-offset",
+  "cve": "CVE-2025-66624",
+  "repo": "https://github.com/bacnet-stack/bacnet-stack.git",
+  "vulnerable": "11efd6902c8c975f05543ccfaa270485d956e79a",
+  "fixed": "9378f7d1e70169ebde4a5090bae7603703eadf48",
+  "fixed_note": "npdu_is_expected_reply: check request_pdu_len/reply_pdu_len against offset + N before each read",
+  "setup": [],
+  "checker": "raptor.FixedOffsetReadNoLengthCheck",
+  "args": [
+    "-Isrc"
+  ],
+  "files": {
+    "src/bacnet/npdu.c": {
+      "vulnerable": [
+        "request\\.invoke_id = request_pdu\\[offset \\+ 2\\];",
+        {
+          "re": "reply\\.invoke_id = reply_pdu\\[offset \\+ 1\\];",
+          "after": "case PDU_TYPE_SIMPLE_ACK:"
+        }
+      ],
+      "fixed": []
+    }
+  }
+}

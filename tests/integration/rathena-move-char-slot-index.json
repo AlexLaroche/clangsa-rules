@@ -1,0 +1,39 @@
+{
+  "name": "rathena-move-char-slot-index",
+  "cve": "CVE-2025-58750",
+  "repo": "https://github.com/rathena/rathena.git",
+  "vulnerable": "0d89ae071ff5e46e8dedcf45d060acec84b3abb5",
+  "fixed": "0cc348b186bbcc3c604c17c39589a319f27d469b",
+  "fixed_note": "chclif_parse_moveCharSlot: reject from/to >= MAX_CHARS before indexing char_moves/found_char",
+  "setup": [
+    ["sh", "-c", "mkdir -p raptor-stub && printf 'typedef struct st_mysql MYSQL;\\ntypedef struct st_mysql_stmt MYSQL_STMT;\\ntypedef struct st_mysql_bind MYSQL_BIND;\\ntypedef struct st_mysql_res MYSQL_RES;\\ntypedef char **MYSQL_ROW;\\n' > raptor-stub/mysql.h"]
+  ],
+  "checker": "raptor.UncheckedInputIndex",
+  "args": [
+    "-std=c++17",
+    "-Iraptor-stub",
+    "-Isrc",
+    "-I3rdparty/rapidyaml/src",
+    "-I3rdparty/rapidyaml/ext/c4core/src",
+    "-I3rdparty/yaml-cpp/include",
+    "-I3rdparty/libconfig",
+    "-I3rdparty/json/include",
+    "-I3rdparty/httplib"
+  ],
+  "sparse": [
+    "src",
+    "3rdparty/rapidyaml",
+    "3rdparty/yaml-cpp",
+    "3rdparty/libconfig",
+    "3rdparty/json",
+    "3rdparty/httplib"
+  ],
+  "files": {
+    "src/char/char_clif.cpp": {
+      "vulnerable": [
+        "\\|\\| \\( \\(charserv_config\\.charmove_config\\.char_moves_unlimited\\)==0 && sd->char_moves\\[from\\] <= 0 \\) \\)\\{"
+      ],
+      "fixed": []
+    }
+  }
+}

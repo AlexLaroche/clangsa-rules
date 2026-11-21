@@ -15,16 +15,21 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `libmicrodns-rr-decode` | CVE-2020-6072 | `raptor.IgnoredStatusReturn` | libmicrodns `0103f40` → `89de67f` (0.1.2) |
 | `libxml2-xinclude-uri-use-after-free` | CVE-2022-49043 | `raptor.UseAfterFree` | libxml2 `afc7e3a` → `5a19e21` |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
+| `rlottie-gradient-opacity-size` | CVE-2025-0634 | `raptor.UncheckedLengthDifference` | rlottie `e3026b1` → `507ea02` |
 | `openssl-http-proxy-host-strncpy` | CVE-2025-9232 | `raptor.UnterminatedStringStrncpy` | openssl `ca3539e` → `bbf38c0` |
+| `mupen64plus-is-viewer-sum-wrap` | CVE-2025-9688 | `raptor.SumBoundsCheckWraps` | mupen64plus-core `e170c40` → `3984137` |
 | `ndpi-address-cache-fscanf` | CVE-2025-25066 | `raptor.InsecureApiScanf` | nDPI `e946f49` → `678697b` |
 | `redis-check-aof-filepath-copy` | CVE-2025-27151 | `raptor.MemcpyLengthUnboundedByDest` | Redis `7f9212e` → `643b5db` |
 | `kissfft-alloc-twiddle-size` | CVE-2025-34297 | `raptor.IntegerWraparound` | kissfft `7bce415` → `1b08316` |
 | `libcoap-host-name-addrstr` | CVE-2025-34468 | `raptor.MemcpyLengthUnboundedByDest` | libcoap `1cae046` → `30db3ea` |
 | `mbedtls-lms-verify` | CVE-2025-49600 | `raptor.IgnoredStatusReturn` | Mbed TLS `caaffc1` → `ae449bf` (3.6.4, with `MBEDTLS_LMS_PRIVATE`) |
+| `mbedtls-lms-import-public-key-type` | CVE-2025-49601 | `raptor.FixedOffsetReadNoLengthCheck` | Mbed TLS `d9c1417` → `548e2db` (3.6.4) |
 | `mbedtls-pem-padding-empty-input` | CVE-2025-52497 | `raptor.EmptyLengthDecrement` | Mbed TLS `9325883` → `6165e71` (3.6.4) |
 | `riot-l2filter-add-assert-length` | CVE-2025-53888 | `raptor.AssertOnlyBound` | RIOT `41e2da1` → `f6f7de4` |
+| `rathena-move-char-slot-index` | CVE-2025-58750 | `raptor.UncheckedInputIndex` | rAthena `0d89ae0` → `0cc348b` |
 | `suricata-shorten-string-empty-output` | CVE-2025-59149 | `raptor.EmptyLengthDecrement` | Suricata `d590fdf` → `38a2cba` (8.0.1) |
 | `cryptolib-kinit-system-command` | CVE-2025-59534 | `raptor.CommandInjection` | CryptoLib `b7ae4a9` → `3ccb1b3` |
+| `bacnet-npdu-expected-reply-offset` | CVE-2025-66624 | `raptor.FixedOffsetReadNoLengthCheck` | bacnet-stack `11efd69` → `9378f7d` |
 | `capstone-skipdata-insn-bytes` | CVE-2025-67873 | `raptor.MemcpyLengthUnboundedByDest` | capstone `2c77971` → `cbef767` |
 | `coturn-aes-key-rand` | CVE-2025-69217 | `raptor.InsecureApiRandSrand` | coturn `4e0d21e` → `88ced47` |
 | `openjpeg-pi-encode-include-size` | CVE-2026-6192 | `raptor.UncheckedAllocProduct` | OpenJPEG `1ad9bec` → `839936a` |
@@ -109,6 +114,7 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `raptor.DuplicateContainerInsert` | 2 |
 | `raptor.ElidableSecretWipe` | 2 |
 | `raptor.EmptyLengthDecrement` | 2 |
+| `raptor.FixedOffsetReadNoLengthCheck` | 2 |
 | `raptor.IntegerWraparound` | 2 |
 | `raptor.LoopGuardOutpacedByWrites` | 2 |
 | `raptor.NarrowedCopyLength` | 2 |
@@ -124,7 +130,10 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `raptor.NegativeLengthUnchecked` | 1 |
 | `raptor.PostDecrementOffByOne` | 1 |
 | `raptor.SizeFieldIgnoresCapacity` | 1 |
+| `raptor.SumBoundsCheckWraps` | 1 |
 | `raptor.TaintedLengthInCopy` | 1 |
+| `raptor.UncheckedInputIndex` | 1 |
+| `raptor.UncheckedLengthDifference` | 1 |
 | `raptor.UncheckedSourceOffset` | 1 |
 | `raptor.UnterminatedStringStrncpy` | 1 |
 | `raptor.UseAfterFree` | 1 |
