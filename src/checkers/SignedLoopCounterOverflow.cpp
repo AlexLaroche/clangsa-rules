@@ -52,6 +52,13 @@ public:
     ASTContext &Ctx = Mgr.getASTContext();
     const SourceManager &SM = Ctx.getSourceManager();
     ParentMap PM(const_cast<Stmt *>(Body));
+    // S is (by identity, not by text) inside Hay
+    auto inside = [&](const Stmt *Hay, const Stmt *S) {
+      for (const Stmt *P = S; P; P = PM.getParent(P))
+        if (P == Hay)
+          return true;
+      return false;
+    };
     auto before = [&](const Stmt *A, const Stmt *B) {
       return SM.isBeforeInTranslationUnit(SM.getExpansionLoc(A->getBeginLoc()),
                                           SM.getExpansionLoc(B->getBeginLoc()));
@@ -69,6 +76,7 @@ public:
     std::set<const VarDecl *> Changed;
     std::vector<const BinaryOperator *> Cmps;
     std::vector<const Expr *> LoopConds; // `while (i < n)` runs up to n, it does not bound it
+    std::vector<const Stmt *> Loops;
     forEach<Stmt>(Body, [&](const Stmt *S) {
       if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
         if (BO->isAssignmentOp())
@@ -82,20 +90,44 @@ public:
                                             : cast<DoStmt>(S)->getCond();
         if (C)
           LoopConds.push_back(C);
+        Loops.push_back(S);
       } else if (const auto *U = dyn_cast<UnaryOperator>(S)) {
         if (U->isIncrementDecrementOp() || U->getOpcode() == UO_AddrOf)
           if (const VarDecl *V = varOf(U->getSubExpr()))
             Changed.insert(V);
       }
     });
+    // `if (i + 2 < n)` inside a loop that moves i: how far that loop has got,
+    // not a bound on n.
+    auto againstCounter = [&](const BinaryOperator *C, const Expr *Them) {
+      for (const Stmt *L : Loops) {
+        if (!inside(L, C))
+          continue;
+        bool Moves = false;
+        forEach<DeclRefExpr>(Them, [&](const DeclRefExpr *D) {
+          const auto *V = dyn_cast<VarDecl>(D->getDecl());
+          if (!V)
+            return;
+          forEach<Stmt>(L, [&](const Stmt *S) {
+            if (const auto *B = dyn_cast<BinaryOperator>(S); B && B->isAssignmentOp())
+              Moves |= varOf(B->getLHS()) == V;
+            else if (const auto *U = dyn_cast<UnaryOperator>(S); U && U->isIncrementDecrementOp())
+              Moves |= varOf(U->getSubExpr()) == V;
+          });
+        });
+        if (Moves)
+          return true;
+      }
+      return false;
+    };
     // Is N compared with something other than 0 or 1 before Loop?
     auto bounded = [&](const VarDecl *N, const ForStmt *Loop) {
       for (const BinaryOperator *C : Cmps) {
-        if (!before(C, Loop) || containsExpr(Loop, C))
+        if (!before(C, Loop) || inside(Loop, C))
           continue;
         bool InLoopCond = false;
         for (const Expr *LC : LoopConds)
-          InLoopCond |= containsExpr(LC, C);
+          InLoopCond |= inside(LC, C);
         if (InLoopCond)
           continue;
         for (int Side = 0; Side < 2; ++Side) {
@@ -104,6 +136,8 @@ public:
           if (varOf(Mine) != N)
             continue;
           if (auto K = constOf(Them); K && *K <= 1)
+            continue;
+          if (againstCounter(C, Them))
             continue;
           return true;
         }

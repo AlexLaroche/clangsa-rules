@@ -144,3 +144,54 @@ void to_mont(int16_t *t, int k) {
       // ok: raptor-signed-loop-counter-overflow
       t[i * POLY_N + j] = (int16_t)(t[i * POLY_N + j] * 3);
 }
+
+// A guard before the loop bounds the length even when the same comparison is
+// written again inside the loop or as some loop's condition (matched by
+// position, not by text).
+void guarded_repeat(unsigned char *t, const unsigned char *f, int dlen) {
+  if (dlen > 4096)
+    return;
+  int i;
+  // ok: raptor-signed-loop-counter-overflow
+  for (i = 0; i + 2 < dlen; i += 3) {
+    if (dlen > 4096)
+      break;
+    t[i] = f[i];
+  }
+}
+void guarded_like_loop_cond(unsigned char *t, const unsigned char *f, int dlen) {
+  if (dlen > 4096)
+    return;
+  int i;
+  // ok: raptor-signed-loop-counter-overflow
+  for (i = 0; i + 2 < dlen; i += 3)
+    t[i] = f[i];
+  int k = 0;
+  while (dlen > 4096 && k < 2)
+    k++;
+}
+
+// A comparison with a counter inside an earlier loop's body does not bound
+// the length either: it only says how far that loop has got
+// (evp_encodeblock_int: `if (ctx_length >= 4 && i + 2 < dlen)` in the
+// line-wrapping loop, before the CVE loop).
+size_t encodeblock_wrap(unsigned char *t, const unsigned char *f, int dlen, int wrap) {
+  int i = 0;
+  size_t ret = 0;
+  if (wrap) {
+    while (i + 2 < dlen) {
+      if (wrap >= 4 && i + 2 < dlen) {
+        *(t++) = f[i];
+        i += 3;
+      }
+      ret += 4;
+    }
+    return ret;
+  }
+  // ruleid: raptor-signed-loop-counter-overflow
+  for (i = 0; i + 2 < dlen; i += 3) {
+    *(t++) = f[i];
+    ret += 4;
+  }
+  return ret;
+}
