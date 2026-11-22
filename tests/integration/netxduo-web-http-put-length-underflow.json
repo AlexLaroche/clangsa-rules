@@ -1,0 +1,62 @@
+{
+  "name": "netxduo-web-http-put-length-underflow",
+  "cve": "CVE-2025-0727",
+  "repo": "https://github.com/eclipse-threadx/netxduo.git",
+  "vulnerable": "1f75e3d4f2ca8b0582962731095949fef5b165c9",
+  "fixed": "c78d650be7377aae1a8704bc0ce5cc6f9f189014",
+  "fixed_note": "_nx_web_http_server_put_process: reject (length - consumed_length) > length before subtracting (the web module twin of CVE-2025-2259)",
+  "setup": [
+    [
+      "git",
+      "clone",
+      "-q",
+      "--depth",
+      "1",
+      "--branch",
+      "v6.5.2.202603_rel",
+      "https://github.com/eclipse-threadx/threadx.git",
+      "raptor-threadx"
+    ],
+    [
+      "git",
+      "clone",
+      "-q",
+      "--depth",
+      "1",
+      "--branch",
+      "v6.5.2.202603_rel",
+      "https://github.com/eclipse-threadx/filex.git",
+      "raptor-filex"
+    ]
+  ],
+  "checker": "raptor.UncheckedLengthDifference",
+  "args": [
+    "-Icommon/inc",
+    "-Iports/linux/gnu/inc",
+    "-Iraptor-threadx/common/inc",
+    "-Iraptor-threadx/ports/linux/gnu/inc",
+    "-Iraptor-filex/common/inc",
+    "-Iraptor-filex/ports/linux/gnu/inc",
+    "-Iaddons/http",
+    "-Iaddons/web",
+    "-Inx_secure/inc",
+    "-Inx_secure/ports",
+    "-Icrypto_libraries/inc",
+    "-Icrypto_libraries/ports/linux/inc"
+  ],
+  "sparse": [
+    "common",
+    "addons/web",
+    "ports/linux",
+    "nx_secure",
+    "crypto_libraries"
+  ],
+  "files": {
+    "addons/web/nx_web_http_server.c": {
+      "vulnerable": [
+        "length =  length - \\(\\(ULONG\\)\\(packet_ptr -> nx_packet_append_ptr - packet_ptr -> nx_packet_prepend_ptr\\) - offset\\);"
+      ],
+      "fixed": []
+    }
+  }
+}

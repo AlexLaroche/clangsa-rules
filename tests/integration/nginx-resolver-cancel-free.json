@@ -1,0 +1,41 @@
+{
+  "name": "nginx-resolver-cancel-free",
+  "cve": "CVE-2026-123634",
+  "repo": "https://github.com/nginx/nginx.git",
+  "vulnerable": "8492a8b8a92acb345e1a34a6789f9ebb93f86e22",
+  "fixed": "e39708edc69a9c0c992b6af075db761946969534",
+  "fixed_note": "ngx_resolve_name_done/ngx_resolve_addr_done: a context that could not be unlinked (already detached by the resolver loop) is freed later by a ngx_resolver_free_handler installed in ctx->handler; released in 1.31.9 / 1.30.7",
+  "setup": [
+    [
+      "auto/configure",
+      "--with-http_v2_module",
+      "--with-http_ssl_module",
+      "--with-http_v3_module"
+    ]
+  ],
+  "checker": "raptor.FreeAfterFailedUnlink",
+  "args": [
+    "-Isrc/core",
+    "-Isrc/event",
+    "-Isrc/event/modules",
+    "-Isrc/event/quic",
+    "-Isrc/os/unix",
+    "-Iobjs",
+    "-Isrc/http",
+    "-Isrc/http/modules",
+    "-Isrc/http/v2",
+    "-Isrc/http/v3"
+  ],
+  "files": {
+    "src/core/ngx_resolver.c": [
+      {
+        "re": "^\\s+ngx_resolver_free_locked\\(r, ctx\\);$",
+        "after": "^ngx_resolve_name_done\\(ngx_resolver_ctx_t \\*ctx\\)$"
+      },
+      {
+        "re": "^\\s+ngx_resolver_free_locked\\(r, ctx\\);$",
+        "after": "^ngx_resolve_addr_done\\(ngx_resolver_ctx_t \\*ctx\\)$"
+      }
+    ]
+  }
+}

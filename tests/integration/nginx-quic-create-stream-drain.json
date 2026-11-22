@@ -1,0 +1,37 @@
+{
+  "name": "nginx-quic-create-stream-drain",
+  "cve": "CVE-2026-121810",
+  "repo": "https://github.com/nginx/nginx.git",
+  "vulnerable": "1d1d861a5e30026c9b76f0760e616847a7601422",
+  "fixed": "b5252dae1ca0d4c516b8bcffd9fa7fd967b73075",
+  "fixed_note": "ngx_quic_create_stream: insert the stream into qc->streams.tree before ngx_get_connection() can drain; released in 1.31.9 / 1.30.7",
+  "setup": [
+    [
+      "auto/configure",
+      "--with-http_v2_module",
+      "--with-http_ssl_module",
+      "--with-http_v3_module"
+    ]
+  ],
+  "checker": "raptor.ReusableConnectionWhileBusy",
+  "args": [
+    "-Isrc/core",
+    "-Isrc/event",
+    "-Isrc/event/modules",
+    "-Isrc/event/quic",
+    "-Isrc/os/unix",
+    "-Iobjs",
+    "-Isrc/http",
+    "-Isrc/http/modules",
+    "-Isrc/http/v2",
+    "-Isrc/http/v3"
+  ],
+  "files": {
+    "src/event/quic/ngx_event_quic_streams.c": [
+      {
+        "re": "^    sc = ngx_get_connection\\(c->fd, log\\);$",
+        "after": "^ngx_quic_create_stream\\("
+      }
+    ]
+  }
+}

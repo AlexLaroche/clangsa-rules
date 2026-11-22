@@ -1,0 +1,37 @@
+{
+  "name": "nginx-h2-create-stream-reusable",
+  "cve": "CVE-2026-123633",
+  "repo": "https://github.com/nginx/nginx.git",
+  "vulnerable": "2a3a19c6fdcdc9bd618b81c4a6d9a80ed67d50da",
+  "fixed": "2df48a501d0fb8212b7d39dffeeff5876332ba59",
+  "fixed_note": "ngx_http_v2_create_stream: ngx_reusable_connection(h2c->connection, 0) after h2c->processing++; released in 1.31.9 / 1.30.7",
+  "setup": [
+    [
+      "auto/configure",
+      "--with-http_v2_module",
+      "--with-http_ssl_module",
+      "--with-http_v3_module"
+    ]
+  ],
+  "checker": "raptor.ReusableConnectionWhileBusy",
+  "args": [
+    "-Isrc/core",
+    "-Isrc/event",
+    "-Isrc/event/modules",
+    "-Isrc/event/quic",
+    "-Isrc/os/unix",
+    "-Iobjs",
+    "-Isrc/http",
+    "-Isrc/http/modules",
+    "-Isrc/http/v2",
+    "-Isrc/http/v3"
+  ],
+  "files": {
+    "src/http/v2/ngx_http_v2.c": [
+      {
+        "re": "^    h2c->processing\\+\\+;$",
+        "after": "^ngx_http_v2_create_stream\\("
+      }
+    ]
+  }
+}

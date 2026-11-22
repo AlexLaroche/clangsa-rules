@@ -16,6 +16,7 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `libxml2-xinclude-uri-use-after-free` | CVE-2022-49043 | `raptor.UseAfterFree` | libxml2 `afc7e3a` → `5a19e21` |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
 | `rlottie-gradient-opacity-size` | CVE-2025-0634 | `raptor.UncheckedLengthDifference` | rlottie `e3026b1` → `507ea02` |
+| `netxduo-web-http-put-length-underflow` | CVE-2025-0727 | `raptor.UncheckedLengthDifference` | NetX Duo `1f75e3d` → `c78d650` |
 | `netxduo-http-put-length-underflow` | CVE-2025-2259 | `raptor.UncheckedLengthDifference` | NetX Duo `bd5d12e` → `fb3195b` |
 | `openssl-http-proxy-host-strncpy` | CVE-2025-9232 | `raptor.UnterminatedStringStrncpy` | openssl `ca3539e` → `bbf38c0` |
 | `mupen64plus-is-viewer-sum-wrap` | CVE-2025-9688 | `raptor.SumBoundsCheckWraps` | mupen64plus-core `e170c40` → `3984137` |
@@ -86,6 +87,7 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `broccoli2shell` | CVE-2026-111497 | `raptor.IgnoredStatusReturn` | brotli `e61745a` (1.0.9) → `50a9b70` (1.0.10) |
 | `libsmb2-dcerpc-carray-alloc` | CVE-2026-115505 | `raptor.UncheckedAllocProduct` | libsmb2 `312feca` → `a79f691` (6.3) |
 | `freeimage-iff-pbm-rle` | CVE-2026-118752 | `raptor.UncheckedCursorWrite` | FreeImage `5af27d0` → `38fbe82` (3.19.22) |
+| `nginx-quic-create-stream-drain` | CVE-2026-121810 | `raptor.ReusableConnectionWhileBusy` | nginx `1d1d861` → `b5252da` (1.31.9, 1.30.7) |
 | `nginx-h2-send-window-refund` | CVE-2026-123007 | `raptor.UncappedCreditReplenish` | nginx `e39708e` → `e27f5fa` (1.31.9, 1.30.7) |
 | `ruby-case-map-sharp-s` | GHSA-34m4-m9fh-gqp5 (no CVE yet) | `raptor.LoopGuardOutpacedByWrites` | Ruby `cdd499e` → `b841d6f` (3.4.13, 4.0.10, 3.3.14) |
 | `ruby-bbuf-write-int-length` | GHSA-3p8q-wmhx-vm2w (no CVE yet) | `raptor.NarrowedCopyLength` | Ruby `8e6b79e` → `57c2469` (3.4.13, 4.0.10, 3.3.14) |
@@ -96,6 +98,8 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `freebsd-ncal-swprintf-byte-count` | FreeBSD r300005, Coverity CID 1007605/1007606 | `raptor.WideCountInBytes` | freebsd-src `e5d4b0f` → `b74e373` |
 | `libdogecoin-urandom-assert-only` | libdogecoin `b7891cf`, CWE-330 (no CVE) | `raptor.UncheckedRandomRead` | libdogecoin `4cb1ccb` → `b7891cf` |
 | `netatalk-uam-random-short-read` | Netatalk `2721b62` (no CVE) | `raptor.UncheckedRandomRead` | Netatalk `771913a` → `2721b62` |
+| `nginx-h2-create-stream-reusable` | CVE-2026-123633 | `raptor.ReusableConnectionWhileBusy` | nginx `2a3a19c` → `2df48a5` (1.31.9, 1.30.7) |
+| `nginx-resolver-cancel-free` | CVE-2026-123634 | `raptor.FreeAfterFailedUnlink` | nginx `8492a8b` → `e39708e` (1.31.9, 1.30.7) |
 
 ## Integration tests per rule
 
@@ -112,6 +116,7 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `raptor.MemcpyLengthUnboundedByDest` | 3 |
 | `raptor.TruncatedProduct` | 3 |
 | `raptor.UncheckedCursorWrite` | 3 |
+| `raptor.UncheckedLengthDifference` | 3 |
 | `raptor.CopyIgnoresSourceSize` | 2 |
 | `raptor.DoubleFree` | 2 |
 | `raptor.DuplicateContainerInsert` | 2 |
@@ -121,14 +126,15 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `raptor.IntegerWraparound` | 2 |
 | `raptor.LoopGuardOutpacedByWrites` | 2 |
 | `raptor.NarrowedCopyLength` | 2 |
+| `raptor.ReusableConnectionWhileBusy` | 2 |
 | `raptor.SumBoundsCheckWraps` | 2 |
 | `raptor.UncappedCreditReplenish` | 2 |
-| `raptor.UncheckedLengthDifference` | 2 |
 | `raptor.UncheckedRandomRead` | 2 |
 | `raptor.UncheckedUnsignedSubtraction` | 2 |
 | `raptor.UseOfSourceSizeInCopy` | 2 |
 | `raptor.WideCountInBytes` | 2 |
 | `raptor.CommandInjection` | 1 |
+| `raptor.FreeAfterFailedUnlink` | 1 |
 | `raptor.IncorrectUseOfSizeof` | 1 |
 | `raptor.InsecureApiRandSrand` | 1 |
 | `raptor.InsecureApiScanf` | 1 |
