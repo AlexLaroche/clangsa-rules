@@ -16,6 +16,7 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `libxml2-xinclude-uri-use-after-free` | CVE-2022-49043 | `raptor.UseAfterFree` | libxml2 `afc7e3a` → `5a19e21` |
 | `webp-huffman` | CVE-2023-4863 | `raptor.UncheckedCursorWrite` | libwebp `7ba44f8` → `902bc91` (1.3.2) |
 | `rlottie-gradient-opacity-size` | CVE-2025-0634 | `raptor.UncheckedLengthDifference` | rlottie `e3026b1` → `507ea02` |
+| `netxduo-http-put-length-underflow` | CVE-2025-2259 | `raptor.UncheckedLengthDifference` | NetX Duo `bd5d12e` → `fb3195b` |
 | `openssl-http-proxy-host-strncpy` | CVE-2025-9232 | `raptor.UnterminatedStringStrncpy` | openssl `ca3539e` → `bbf38c0` |
 | `mupen64plus-is-viewer-sum-wrap` | CVE-2025-9688 | `raptor.SumBoundsCheckWraps` | mupen64plus-core `e170c40` → `3984137` |
 | `ndpi-address-cache-fscanf` | CVE-2025-25066 | `raptor.InsecureApiScanf` | nDPI `e946f49` → `678697b` |
@@ -29,6 +30,7 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `rathena-move-char-slot-index` | CVE-2025-58750 | `raptor.UncheckedInputIndex` | rAthena `0d89ae0` → `0cc348b` |
 | `suricata-shorten-string-empty-output` | CVE-2025-59149 | `raptor.EmptyLengthDecrement` | Suricata `d590fdf` → `38a2cba` (8.0.1) |
 | `cryptolib-kinit-system-command` | CVE-2025-59534 | `raptor.CommandInjection` | CryptoLib `b7ae4a9` → `3ccb1b3` |
+| `fastdds-cdrmessage-read-data-sum-wrap` | CVE-2025-62601 | `raptor.SumBoundsCheckWraps` | Fast DDS `afc30f9` → `3542185` |
 | `bacnet-npdu-expected-reply-offset` | CVE-2025-66624 | `raptor.FixedOffsetReadNoLengthCheck` | bacnet-stack `11efd69` → `9378f7d` |
 | `capstone-skipdata-insn-bytes` | CVE-2025-67873 | `raptor.MemcpyLengthUnboundedByDest` | capstone `2c77971` → `cbef767` |
 | `coturn-aes-key-rand` | CVE-2025-69217 | `raptor.InsecureApiRandSrand` | coturn `4e0d21e` → `88ced47` |
@@ -119,7 +121,9 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `raptor.IntegerWraparound` | 2 |
 | `raptor.LoopGuardOutpacedByWrites` | 2 |
 | `raptor.NarrowedCopyLength` | 2 |
+| `raptor.SumBoundsCheckWraps` | 2 |
 | `raptor.UncappedCreditReplenish` | 2 |
+| `raptor.UncheckedLengthDifference` | 2 |
 | `raptor.UncheckedRandomRead` | 2 |
 | `raptor.UncheckedUnsignedSubtraction` | 2 |
 | `raptor.UseOfSourceSizeInCopy` | 2 |
@@ -132,10 +136,8 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `raptor.PostDecrementOffByOne` | 1 |
 | `raptor.SignedLoopCounterOverflow` | 1 |
 | `raptor.SizeFieldIgnoresCapacity` | 1 |
-| `raptor.SumBoundsCheckWraps` | 1 |
 | `raptor.TaintedLengthInCopy` | 1 |
 | `raptor.UncheckedInputIndex` | 1 |
-| `raptor.UncheckedLengthDifference` | 1 |
 | `raptor.UncheckedSourceOffset` | 1 |
 | `raptor.UnterminatedStringStrncpy` | 1 |
 | `raptor.UseAfterFree` | 1 |

@@ -1,0 +1,53 @@
+{
+  "name": "fastdds-cdrmessage-read-data-sum-wrap",
+  "cve": "CVE-2025-62601",
+  "repo": "https://github.com/eProsima/Fast-DDS.git",
+  "vulnerable": "afc30f9e2c8df9fe4041de0175dc90e163e750a0",
+  "fixed": "354218514d32beac963ff5c306f1cf159ee37c5f",
+  "fixed_note": "CDRMessage reads check msg->pos + size in 64-bit arithmetic (check_available_data) instead of 32-bit 'msg->pos + length > msg->length'",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "sed -e 's/#cmakedefine01 \\([A-Z_0-9]*\\)/#define \\1 0/; s/#cmakedefine \\([A-Z_0-9]*\\).*/\\/* #undef \\1 *\\//' -e 's/@PROJECT_VERSION_MAJOR@/3/;s/@PROJECT_VERSION_MINOR@/4/;s/@PROJECT_VERSION_PATCH@/0/;s/@PROJECT_VERSION@/3.4.0/;s/@[A-Za-z0-9_]*@/0/g' include/fastdds/config.hpp.in > include/fastdds/config.hpp"
+    ],
+    [
+      "git",
+      "clone",
+      "-q",
+      "--depth",
+      "1",
+      "--branch",
+      "v2.3.0",
+      "https://github.com/eProsima/Fast-CDR.git",
+      "raptor-fastcdr"
+    ],
+    [
+      "sh",
+      "-c",
+      "sed -e 's/#cmakedefine01 \\([A-Z_0-9]*\\)/#define \\1 0/; s/#cmakedefine \\([A-Z_0-9]*\\).*/\\/* #undef \\1 *\\//' -e 's/@HAVE_CXX[0-9Y]*@/1/g;s/@[A-Za-z0-9_]*@/0/g' raptor-fastcdr/include/fastcdr/config.h.in > raptor-fastcdr/include/fastcdr/config.h"
+    ]
+  ],
+  "checker": "raptor.SumBoundsCheckWraps",
+  "args": [
+    "-std=c++17",
+    "-Iinclude",
+    "-Isrc/cpp",
+    "-Iraptor-fastcdr/include"
+  ],
+  "sparse": [
+    "include",
+    "src/cpp"
+  ],
+  "files": {
+    "src/cpp/rtps/messages/CDRMessage.cpp": {
+      "vulnerable": [
+        {
+          "re": "if \\(msg->pos \\+ length > msg->length\\)",
+          "after": "^bool CDRMessage::readData\\("
+        }
+      ],
+      "fixed": []
+    }
+  }
+}

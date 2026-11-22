@@ -1,0 +1,55 @@
+{
+  "name": "netxduo-http-put-length-underflow",
+  "cve": "CVE-2025-2259",
+  "repo": "https://github.com/eclipse-threadx/netxduo.git",
+  "vulnerable": "bd5d12e9e601015a560b2e3bef0e78d63fc0d6c3",
+  "fixed": "fb3195bbb6d0d6fe71a7a19585c008623c217f9e",
+  "fixed_note": "_nx_http_server_put_process: compute consumed_length, reject (length - consumed_length) > length (underflow) before length -= consumed_length",
+  "setup": [
+    [
+      "git",
+      "clone",
+      "-q",
+      "--depth",
+      "1",
+      "--branch",
+      "v6.5.2.202603_rel",
+      "https://github.com/eclipse-threadx/threadx.git",
+      "raptor-threadx"
+    ],
+    [
+      "git",
+      "clone",
+      "-q",
+      "--depth",
+      "1",
+      "--branch",
+      "v6.5.2.202603_rel",
+      "https://github.com/eclipse-threadx/filex.git",
+      "raptor-filex"
+    ]
+  ],
+  "checker": "raptor.UncheckedLengthDifference",
+  "args": [
+    "-Icommon/inc",
+    "-Iports/linux/gnu/inc",
+    "-Iraptor-threadx/common/inc",
+    "-Iraptor-threadx/ports/linux/gnu/inc",
+    "-Iraptor-filex/common/inc",
+    "-Iraptor-filex/ports/linux/gnu/inc",
+    "-Iaddons/http"
+  ],
+  "sparse": [
+    "common",
+    "addons/http",
+    "ports/linux"
+  ],
+  "files": {
+    "addons/http/nxd_http_server.c": {
+      "vulnerable": [
+        "length =  length - \\(\\(ULONG\\)\\(packet_ptr -> nx_packet_append_ptr - packet_ptr -> nx_packet_prepend_ptr\\) - offset\\);"
+      ],
+      "fixed": []
+    }
+  }
+}
