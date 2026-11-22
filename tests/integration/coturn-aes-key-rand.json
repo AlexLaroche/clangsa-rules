@@ -8,6 +8,7 @@
   "setup": [],
   "checker": "raptor.InsecureApiRandSrand",
   "args": [
+    "-DTURN_NO_SYSTEMD",
     "-DTURN_NO_PROMETHEUS",
     "-DTURN_NO_HIREDIS",
     "-DTURN_NO_MYSQL",

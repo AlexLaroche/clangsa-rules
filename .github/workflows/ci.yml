@@ -36,7 +36,7 @@ jobs:
             libgnutls28-dev libboost-all-dev libevent-dev libpam0g-dev nasm \
             libapr1-dev libaprutil1-dev libopenjp2-7-dev libpcre2-dev libjansson-dev \
             x11proto-dev libpixman-1-dev libxkbfile-dev libglib2.0-dev \
-            libimath-dev libnghttp2-dev autoconf automake \
+            libimath-dev libnghttp2-dev libcurl4-openssl-dev autoconf automake \
             flex bison bc libelf-dev libtool ruby libmcrypt-dev re2c autoconf2.69 \
             libgcrypt20-dev libiniparser-dev libncurses-dev meson
           echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
