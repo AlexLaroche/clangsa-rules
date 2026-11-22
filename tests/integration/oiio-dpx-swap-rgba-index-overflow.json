@@ -1,0 +1,49 @@
+{
+  "name": "oiio-dpx-swap-rgba-index-overflow",
+  "cve": "CVE-2026-43909",
+  "repo": "https://github.com/AcademySoftwareFoundation/OpenImageIO.git",
+  "vulnerable": "50962c9c504480f643b6abf197120cafa6bfa923",
+  "fixed": "a2506751bb41825c4e64660c935d9736bfb591cf",
+  "fixed_note": "DPXColorConverter: SwapRGBABytes and the YCbCr converters take size_t pixel counts and size_t loop counters",
+  "setup": [
+    [
+      "sh",
+      "-c",
+      "sed -e 's/@CMAKE_CXX_STANDARD@/17/;s/@Imath_VERSION_MAJOR@/3/;s/@Imath_VERSION_MINOR@/1/;s/@PROJECT_VERSION_MAJOR@/3/;s/@PROJECT_VERSION_MINOR@/2/;s/@PROJECT_VERSION_PATCH@/0/;s/@PROJECT_VERSION_TWEAK@/1/;s/@PROJECT_VERSION_RELEASE_TYPE@/dev/;s/@PROJ_NAMESPACE@/OpenImageIO/;s/@PROJ_VERSION_NAMESPACE@/v3_2_0/;s/#cmakedefine01 \\([A-Z_]*\\)/#define \\1 0/' src/include/OpenImageIO/oiioversion.h.in > src/include/OpenImageIO/oiioversion.h"
+    ],
+    [
+      "git",
+      "clone",
+      "-q",
+      "--depth",
+      "1",
+      "--branch",
+      "11.0.2",
+      "https://github.com/fmtlib/fmt.git",
+      "raptor-fmt"
+    ],
+    [
+      "sh",
+      "-c",
+      "mkdir -p src/include/OpenImageIO/detail/fmt && cp raptor-fmt/include/fmt/*.h src/include/OpenImageIO/detail/fmt/"
+    ]
+  ],
+  "checker": "raptor.SignedLoopCounterOverflow",
+  "args": [
+    "-std=c++17",
+    "-Isrc/include",
+    "-Isrc/dpx.imageio/libdpx"
+  ],
+  "sparse": [
+    "src/include",
+    "src/dpx.imageio"
+  ],
+  "files": {
+    "src/dpx.imageio/libdpx/DPXColorConverter.cpp": {
+      "vulnerable": [
+        "memcpy\\(tmp, &input\\[i \\* 4\\], sizeof\\(DATA\\) \\* 2\\);"
+      ],
+      "fixed": []
+    }
+  }
+}

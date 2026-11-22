@@ -57,6 +57,7 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `kissfft-fftndr-alloc` | CVE-2026-41445 | `raptor.UncheckedAllocProduct` | KissFFT `39c9781` → `8a8e66e` |
 | `simpleble-peripheral-data-copy` | CVE-2026-44634 | `raptor.UseOfSourceSizeInCopy` | SimpleBLE `2a9cbfb` → `1501d59` |
 | `libsixel-highcolor-alloc` | CVE-2026-44636 | `raptor.UncheckedAllocProduct` | libsixel `15c4c21` → `2d8c7b0` |
+| `oiio-dpx-swap-rgba-index-overflow` | CVE-2026-43909 | `raptor.SignedLoopCounterOverflow` | OpenImageIO `50962c9` → `a250675` (3.0.18, 3.1.13) |
 | `nimble-adv-report-sizeof-pointer` | CVE-2026-45812 | `raptor.IncorrectUseOfSizeof` | Apache NimBLE `5778cd6` → `605c758` |
 | `libde265-image-plane-alloc` | CVE-2026-49346 | `raptor.UncheckedAllocProduct` | libde265 `56fb7b8` → `8a1b5cf` |
 | `freerdp-avc444-buffer-alloc` | CVE-2026-55191 | `raptor.UncheckedAllocProduct` | FreeRDP `3248c0c` → `97f40b9` |
@@ -129,6 +130,7 @@ One row per real vulnerability in `tests/integration/`; see the README ("Integra
 | `raptor.InsecureApiScanf` | 1 |
 | `raptor.NegativeLengthUnchecked` | 1 |
 | `raptor.PostDecrementOffByOne` | 1 |
+| `raptor.SignedLoopCounterOverflow` | 1 |
 | `raptor.SizeFieldIgnoresCapacity` | 1 |
 | `raptor.SumBoundsCheckWraps` | 1 |
 | `raptor.TaintedLengthInCopy` | 1 |
