@@ -16,8 +16,14 @@
 //     len`, `off < len ? len - off : 0`, `for (i = 0; i < len; i++) ...
 //     len - i`, `(length - consumed) > length`);
 //   - a value of B initialised from an expression that mentions A, or
-//     assigned from one outside any branch (`n = len < cap ? len : cap`), or
-//     A from B.
+//     assigned from one where the assignment always runs before the
+//     subtraction (`n = len < cap ? len : cap`, `l = len;` at the top of the
+//     loop body, `if ((i = len & -16)) ... len -= i`), directly or through
+//     one more local (`cp = memchr(buf, c, len); n = cp - buf;`), or A from B;
+//   - a comparison of A and B later in the loop around the subtraction
+//     (it guards the next pass).
+// printf-style arguments do not count as reaching memory. `A - (x % A)` and
+// `A - (x & (A - 1))` cannot wrap.
 // Only the first unguarded subtraction from each A is reported, and only
 // when the difference reaches memory: an index, pointer arithmetic, the size
 // of mem*/str*n*/alloc/read/write, an argument next to a pointer argument of
@@ -92,8 +98,14 @@ public:
     const SourceManager &SM = Ctx.getSourceManager();
     ParentMap PM(const_cast<Stmt *>(Body));
     auto loc = [&](const Stmt *S) { return SM.getExpansionLoc(S->getBeginLoc()); };
+    // Source order; inside one macro expansion (a function written as a
+    // macro), spelling order.
     auto before = [&](const Stmt *A, const Stmt *B) {
-      return SM.isBeforeInTranslationUnit(loc(A), loc(B));
+      SourceLocation LA = loc(A), LB = loc(B);
+      if (LA == LB)
+        return SM.isBeforeInTranslationUnit(SM.getSpellingLoc(A->getBeginLoc()),
+                                            SM.getSpellingLoc(B->getBeginLoc()));
+      return SM.isBeforeInTranslationUnit(LA, LB);
     };
     auto parentOf = [&](const Stmt *S) {
       const Stmt *P = PM.getParent(S);
@@ -109,8 +121,7 @@ public:
       if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
         if (BO->isComparisonOp())
           Cmps.push_back(BO);
-        else if (BO->getOpcode() == BO_Assign && parentOf(BO) &&
-                 (isa<CompoundStmt>(parentOf(BO)) && parentOf(BO) == Body)) {
+        else if (BO->getOpcode() == BO_Assign) {
           std::string K = raptor_mem::keyOf(BO->getLHS());
           if (!K.empty())
             Defs.push_back({K, BO});
@@ -131,6 +142,27 @@ public:
           }
       }
     });
+
+    // Does definition S always run before Use? (S is not in a branch or loop
+    // body that Use is outside of.)
+    auto dominates = [&](const Stmt *S, const Expr *Use) {
+      for (const Stmt *P = PM.getParent(S); P; P = PM.getParent(P)) {
+        if (containsExpr(P, Use))
+          return true;
+        if (isa<IfStmt>(P) || isa<ForStmt>(P) || isa<WhileStmt>(P) || isa<DoStmt>(P) ||
+            isa<SwitchStmt>(P) || isa<ConditionalOperator>(P) ||
+            (isa<BinaryOperator>(P) && cast<BinaryOperator>(P)->isLogicalOp()))
+          return false;
+      }
+      return false;
+    };
+    // The innermost loop around S.
+    auto loopOf = [&](const Stmt *S) -> const Stmt * {
+      for (const Stmt *P = PM.getParent(S); P; P = PM.getParent(P))
+        if (isa<ForStmt>(P) || isa<WhileStmt>(P) || isa<DoStmt>(P))
+          return P;
+      return nullptr;
+    };
 
     // Does the value of E reach memory? (EmptyLengthDecrement's walk, plus
     // calls that take a pointer next to it.)
@@ -179,6 +211,11 @@ public:
             return true;
           if (Cur == CE->getCallee())
             return false;
+          // printf-style arguments are printed, not used as sizes
+          if (const auto *FD = CE->getDirectCallee(); FD && FD->isVariadic())
+            for (unsigned I = FD->getNumParams(); I < CE->getNumArgs(); ++I)
+              if (CE->getArg(I) == Cur)
+                return false;
           for (const Expr *A : CE->arguments())
             if (A != Cur && A->IgnoreParenImpCasts()->getType()->isPointerType() &&
                 !isa<StringLiteral>(A->IgnoreParenImpCasts()))
@@ -245,6 +282,17 @@ public:
       std::string AK = raptor_mem::keyOf(A);
       if (AK.empty() || Done.count(AK) || intValue(BO->getRHS(), Ctx))
         continue;
+      // `A - (x % A)`, `A - (x & (A - 1))`: the remainder is below A
+      if (const auto *R = dyn_cast<BinaryOperator>(BO->getRHS()->IgnoreParenImpCasts())) {
+        const Expr *M = R->getRHS()->IgnoreParenImpCasts();
+        if (R->getOpcode() == BO_And)
+          if (const auto *D = dyn_cast<BinaryOperator>(M); D && D->getOpcode() == BO_Sub)
+            if (auto One = intValue(D->getRHS(), Ctx); One && *One == 1)
+              M = D->getLHS()->IgnoreParenImpCasts();
+        if ((R->getOpcode() == BO_Rem || R->getOpcode() == BO_And) &&
+            (isa<DeclRefExpr>(M) || isa<MemberExpr>(M)) && raptor_mem::keyOf(M) == AK)
+          continue;
+      }
       std::set<std::string> BK = values(BO->getRHS(), &PM);
       BK.erase(AK);
       if (BK.empty())
@@ -269,9 +317,11 @@ public:
         continue;
       Done.insert(AK);
 
+      // A comparison later in the same loop guards the next pass.
+      const Stmt *Loop = loopOf(BO);
       bool G = false;
       for (const BinaryOperator *C : Cmps) {
-        if (!before(C, BO))
+        if (!before(C, BO) && !(Loop && containsExpr(Loop, C)))
           continue;
         std::set<std::string> V = values(C);
         if (V.count(AK) && meets(V, BK)) {
@@ -279,16 +329,33 @@ public:
           break;
         }
       }
-      for (const auto &[K, S] : Defs) {
-        if (G || !before(S, BO) || containsExpr(S, BO))
-          continue;
-        const Stmt *Rhs = S;
-        if (const auto *As = dyn_cast<BinaryOperator>(S))
-          Rhs = As->getRHS();
-        std::set<std::string> V = values(Rhs);
-        if ((BK.count(K) && V.count(AK)) || (K == AK && meets(V, BK)))
-          G = true;
-      }
+      // Values of the definitions of K that run before the subtraction.
+      auto defValues = [&](const std::string &K) {
+        std::vector<std::set<std::string>> R;
+        for (const auto &[DK, S] : Defs) {
+          if (DK != K || !before(S, BO) || containsExpr(S, BO))
+            continue;
+          if (isa<BinaryOperator>(S) && !dominates(S, BO))
+            continue;
+          const Stmt *Rhs = S;
+          if (const auto *As = dyn_cast<BinaryOperator>(S))
+            Rhs = As->getRHS();
+          R.push_back(values(Rhs));
+        }
+        return R;
+      };
+      // B computed from A, directly or through one more local
+      // (`cp = memchr(buf, c, len); n = cp - buf;`); A computed from B.
+      for (const auto &K : BK)
+        for (const auto &V : defValues(K)) {
+          G |= V.count(AK) > 0;
+          for (const auto &K2 : V)
+            if (!G && K2 != K)
+              for (const auto &V2 : defValues(K2))
+                G |= V2.count(AK) > 0;
+        }
+      for (const auto &V : defValues(AK))
+        G |= meets(V, BK);
       if (G)
         continue;
       std::string B = Lexer::getSourceText(

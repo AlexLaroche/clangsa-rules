@@ -163,3 +163,121 @@ void drain(char *dst, const char *src, size_t len, size_t blk) {
     len -= sz;
   }
 }
+
+// --- noise seen in OpenSSH, curl, OpenSSL, HAProxy, libssh2 ---
+
+// B assigned from A in the block that holds the subtraction, or in the
+// condition that guards it (OpenSSH authfd `l = len`, curl bufq
+// `n = chunk_append(.., len)`, OpenSSL gcm128 `if ((i = len & -16))`).
+void read_n(char *p, size_t n);
+void read_rest(char *buf, size_t bufsz, size_t len) {
+  size_t l;
+  while (len > 0) {
+    l = len;
+    if (l > bufsz)
+      l = bufsz;
+    read_n(buf, l);
+    // ok: raptor-unchecked-length-difference
+    len -= l;
+  }
+}
+size_t chunk_append(char *dst, const char *src, size_t len);
+void append_all(char *dst, const char *buf, size_t len) {
+  size_t n;
+  while (len) {
+    n = chunk_append(dst, buf, len);
+    if (!n)
+      break;
+    buf += n;
+    // ok: raptor-unchecked-length-difference
+    len -= n;
+  }
+}
+void ghash(const unsigned char *aad, size_t len);
+void aad_blocks(const unsigned char *aad, size_t len) {
+  size_t i;
+  if ((i = (len & (size_t)-16))) {
+    ghash(aad, i);
+    aad += i;
+    // ok: raptor-unchecked-length-difference
+    len -= i;
+  }
+  while (len) {
+    ghash(aad++, 1);
+    len--;
+  }
+}
+// An assignment in another branch does not count.
+void branch_def(char *dst, const char *src, size_t len, size_t hdr, int f) {
+  size_t n = hdr;
+  if (f) {
+    n = len;
+  }
+  // ruleid: raptor-unchecked-length-difference
+  memcpy(dst, src + n, len - n);
+}
+
+// A comparison later in the same loop guards the next pass (HAProxy
+// print_cpu_set).
+int snprintf(char *s, size_t n, const char *fmt, ...);
+size_t print_list(char *out, size_t size, int count) {
+  int len = 0;
+  for (int i = 0; i < count; i++) {
+    // ok: raptor-unchecked-length-difference
+    len += snprintf(out + len, size - len, "%d,", i);
+    if (len >= size)
+      return len;
+  }
+  return len;
+}
+
+// printf-style arguments are printed, not used as sizes (HAProxy debug.c).
+void chunk_appendf(char *buf, const char *fmt, ...);
+void show_times(char *buf, size_t n, size_t p) {
+  // ok: raptor-unchecked-length-difference
+  chunk_appendf(buf, "diff=%zu\n", n - p);
+}
+
+// A whole function written as a macro (OpenSSL IMPLEMENT_CIPHER_HW_ECB):
+// order inside the expansion is spelling order.
+void enc_block(const unsigned char *in, unsigned char *out);
+#define IMPLEMENT_ECB(NAME)                                                              \
+  int NAME##_ecb(unsigned char *out, const unsigned char *in, size_t len, size_t bl) {   \
+    size_t i;                                                                            \
+    if (len < bl)                                                                        \
+      return 1;                                                                          \
+    for (i = 0, len -= bl; i <= len; i += bl)                                            \
+      enc_block(in + i, out + i);                                                        \
+    return 1;                                                                            \
+  }
+// ok: raptor-unchecked-length-difference
+IMPLEMENT_ECB(bf)
+
+// B computed from a position that a search bounded by A returned (curl
+// ftp.c: `cp = memchr(buf, '\r', blen); chunk_len = cp - buf;`).
+void *memchr(const void *s, int c, size_t n);
+void put_line(const char *p, size_t n);
+void strip_cr(const char *buf, size_t blen) {
+  while (blen) {
+    const char *cp = memchr(buf, '\r', blen);
+    if (!cp)
+      break;
+    size_t chunk_len = cp - buf;
+    put_line(buf, chunk_len);
+    buf = cp + 1;
+    // ok: raptor-unchecked-length-difference
+    blen = blen - chunk_len - 1;
+  }
+  put_line(buf, blen);
+}
+
+// B is a remainder modulo A, so B < A (libssh2 transport.c `blocksize -
+// (len % blocksize)`, wolfSSL asn.c `blockSz - (sz & (blockSz - 1))`).
+void pad(unsigned char *out, size_t blocksize, size_t len) {
+  // ok: raptor-unchecked-length-difference
+  memset(out + len, 0, blocksize - (len % blocksize));
+}
+void pad_pow2(unsigned char *out, size_t blockSz, size_t sz) {
+  // ok: raptor-unchecked-length-difference
+  memset(out + sz, 0, blockSz - (sz & (blockSz - 1)));
+}
