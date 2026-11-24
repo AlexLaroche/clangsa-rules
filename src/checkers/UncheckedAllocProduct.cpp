@@ -13,7 +13,9 @@
 // where the product is at most 32 bits wide, can wrap (the operands' value
 // widths add up to more than the product's) and neither factor is a
 // constant (a constant factor is raptor.IntegerWraparound's business). A
-// product computed in size_t on a 64-bit target does not match.
+// product computed in size_t on a 64-bit target does not match. A product
+// written in a macro body (a macro that defines functions, expanded in many
+// files) is reported once, where it is written.
 // Sanitizers, on the variables and fields used by the factors:
 //   - a relational comparison containing a division (`a > INT_MAX / b`), or
 //     the product of both factors computed in a wider type (`(int64_t)a * b
@@ -41,6 +43,7 @@
 #include "clang/Lex/Lexer.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallSet.h"
 #include <map>
 #include <optional>
 
@@ -394,15 +397,26 @@ public:
             if (FieldSet F; factorFields(Mul, Ctx, F) && F.size() >= 2 &&
                             fileGuards(Ctx).covers(F))
               continue;
-            raptor::reportAt(
-                BR, this, "Unchecked allocation product",
-                "Allocation size '" + exprText(Mul, Ctx) +
-                    "' is a 32-bit product of run-time values that can wrap "
-                    "around and allocate a buffer smaller than the data "
-                    "written "
-                    "into it: check the factors for overflow or multiply in "
-                    "size_t (CWE-190, CWE-787)",
-                CE, Mgr.getAnalysisDeclContext(D));
+            std::string Msg = "Allocation size '" + exprText(Mul, Ctx) +
+                              "' is a 32-bit product of run-time values that can wrap "
+                              "around and allocate a buffer smaller than the data "
+                              "written "
+                              "into it: check the factors for overflow or multiply in "
+                              "size_t (CWE-190, CWE-787)";
+            const SourceManager &SM = Ctx.getSourceManager();
+            SourceLocation ML = Mul->getBeginLoc();
+            if (ML.isMacroID() && !SM.isMacroArgExpansion(ML)) {
+              // Written in a macro body (a macro that defines functions,
+              // expanded in many files): one report, where it is written.
+              SourceLocation SL = SM.getSpellingLoc(ML);
+              if (!ReportedSpellings.insert(SL.getRawEncoding()).second)
+                return;
+              BR.EmitBasicReport(D, this, "Unchecked allocation product", raptor::Category, Msg,
+                                 PathDiagnosticLocation(SL, SM));
+              return;
+            }
+            raptor::reportAt(BR, this, "Unchecked allocation product", Msg, CE,
+                             Mgr.getAnalysisDeclContext(D));
             return;
           }
       }
@@ -410,10 +424,24 @@ public:
   }
 
 private:
+  // Spelled sizes already reported in this translation unit.
+  mutable llvm::SmallSet<unsigned, 8> ReportedSpellings;
+
   static std::string exprText(const Expr *E, ASTContext &Ctx) {
     const SourceManager &SM = Ctx.getSourceManager();
     CharSourceRange R = CharSourceRange::getTokenRange(E->getSourceRange());
-    return Lexer::getSourceText(R, SM, Ctx.getLangOpts()).str();
+    std::string T = Lexer::getSourceText(R, SM, Ctx.getLangOpts()).str();
+    if (!T.empty())
+      return T;
+    // Inside a macro body: the text as written in the macro.
+    SourceLocation B = SM.getSpellingLoc(E->getBeginLoc()), En = SM.getSpellingLoc(E->getEndLoc());
+    if (SM.getFileID(B) == SM.getFileID(En) && !SM.isBeforeInTranslationUnit(En, B))
+      T = Lexer::getSourceText(CharSourceRange::getTokenRange(B, En), SM, Ctx.getLangOpts()).str();
+    if (!T.empty())
+      return T;
+    llvm::raw_string_ostream OS(T);
+    E->printPretty(OS, nullptr, PrintingPolicy(Ctx.getLangOpts()));
+    return OS.str();
   }
 
   // A `*` of non-constant operands, at most 32 bits wide, inside E (not

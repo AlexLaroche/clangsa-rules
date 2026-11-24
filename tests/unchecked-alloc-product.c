@@ -416,3 +416,15 @@ void *vmd_table_maybe(Vmd *vmd, const uint8_t *hdr, int fresh)
 	// ruleid: raptor-unchecked-alloc-product
 	return malloc(vmd->frame_count * vmd->frames_per_block);
 }
+
+// A product written in a macro that defines functions (FreeRADIUS
+// FR_SLAB_FUNCS, expanded in ten files): one report, where it is written.
+struct slab_cfg { unsigned per_slab; };
+void *pooled_alloc(void *ctx, unsigned n);
+// ruleid: raptor-unchecked-alloc-product
+#define SLAB_ELEMS(_c, _n) ((_c)->per_slab * (1 + (_n)))
+#define SLAB_FUNCS(_name) \
+	static void *_name##_slab_alloc(struct slab_cfg *c, unsigned children) \
+	{ return pooled_alloc(c, SLAB_ELEMS(c, children)); }
+SLAB_FUNCS(request)
+SLAB_FUNCS(connection)
