@@ -101,3 +101,28 @@ int main()
 	printf("Hello, World!");
 	return 0;
 }
+
+// A temporary switch around a check, restored afterwards (FreeRADIUS
+// cf_file_check_effective): the setegid() in the seteuid() failure branch
+// runs with the uid unchanged, and seteuid(euid) with euid saved from
+// geteuid() regains privileges before the gid is restored.
+int check_effective(uid_t u, gid_t g, int (*cb)(void))
+{
+	uid_t euid = geteuid();
+	gid_t egid = getegid();
+	int r;
+	if (setegid(g) < 0)
+		return -1;
+	// ok: raptor-incorrect-order-setuid-setgid
+	if (seteuid(u) < 0) {
+		setegid(egid);
+		return -1;
+	}
+	r = cb();
+	// ok: raptor-incorrect-order-setuid-setgid
+	if (seteuid(euid) < 0)
+		return -1;
+	if (setegid(egid) < 0)
+		return -1;
+	return r;
+}
