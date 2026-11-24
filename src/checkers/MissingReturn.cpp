@@ -1,5 +1,6 @@
 // raptor.MissingReturn: definition of a non-void function (other
-// than main) whose body contains no `return <expr>;` at all.
+// than main) whose body contains no `return <expr>;` at all, and does not
+// end every path in a noreturn call (`abort();`, a fatal handler).
 #include "Common.h"
 #include "Registry.h"
 #include "clang/AST/DeclCXX.h"
@@ -24,6 +25,26 @@ bool hasValueReturn(const Stmt *S) {
   return false;
 }
 
+// Does S never complete normally: a call to a noreturn function, a block
+// with one at its top level, an if/else whose branches both never complete?
+bool neverCompletes(const Stmt *S) {
+  if (!S)
+    return false;
+  if (const auto *E = dyn_cast<Expr>(S))
+    if (const auto *CE = dyn_cast<CallExpr>(E->IgnoreParenImpCasts()))
+      if (const FunctionDecl *FD = CE->getDirectCallee())
+        return FD->isNoReturn();
+  if (const auto *CS = dyn_cast<CompoundStmt>(S)) {
+    for (const Stmt *C : CS->body())
+      if (neverCompletes(C))
+        return true;
+    return false;
+  }
+  if (const auto *If = dyn_cast<IfStmt>(S))
+    return neverCompletes(If->getThen()) && neverCompletes(If->getElse());
+  return false;
+}
+
 class MissingReturnChecker : public Checker<check::ASTCodeBody> {
 public:
   void checkASTCodeBody(const Decl *D, AnalysisManager &Mgr,
@@ -33,7 +54,8 @@ public:
         isa<CXXConstructorDecl, CXXDestructorDecl>(FD) ||
         FD->getReturnType()->isVoidType() || FD->isImplicit())
       return;
-    if (hasValueReturn(FD->getBody()))
+    // every path ends in abort() or the project's fatal handler
+    if (hasValueReturn(FD->getBody()) || neverCompletes(FD->getBody()))
       return;
     // focus-metavariable: $FUN
     PathDiagnosticLocation L(FD->getLocation(), BR.getSourceManager());
