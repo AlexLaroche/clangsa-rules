@@ -49,6 +49,7 @@
 
 using namespace clang;
 using namespace ento;
+using raptor::isReleaseAssert;
 
 namespace {
 template <class F> void walk(const Stmt *S, F &&Fn) {
@@ -57,15 +58,6 @@ template <class F> void walk(const Stmt *S, F &&Fn) {
   Fn(S);
   for (const Stmt *C : S->children())
     walk(C, Fn);
-}
-
-// An assertion that release builds compile out.
-bool isReleaseAssert(StringRef Name) {
-  static const llvm::Regex RE("^[[:alnum:]_]*assert[[:alnum:]_]*$", llvm::Regex::IgnoreCase);
-  std::string L = Name.lower();
-  StringRef S(L);
-  return RE.match(Name) && !S.starts_with("assert_") && !S.starts_with("ck_") &&
-         !S.contains("static") && !S.starts_with("expect");
 }
 
 struct Assertion {

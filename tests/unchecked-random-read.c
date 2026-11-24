@@ -167,3 +167,55 @@ int read_config(unsigned char *buf, size_t n) {
   fread(buf, 1, n, f);
   return 0;
 }
+
+// FreeRADIUS 3.2.10 rlm_eap_fast eap_fast.c eap_fast_send_pac_tunnel (fixed in
+// 708852c4a1): the project's own assertion macro is compiled out by NDEBUG
+// (non-developer builds), so RAND_bytes never runs and the PAC-Opaque GCM IV
+// stays all-zero.
+#ifdef NDEBUG
+#define rad_assert(expr) ((void)0)
+#else
+#define rad_assert(expr) assert(expr)
+#endif
+#define fr_assert(_x) rad_assert(_x)
+int send_pac(void) {
+  unsigned char iv[12];
+  memset(iv, 0, sizeof(iv));
+  // ruleid: raptor-unchecked-random-read
+  rad_assert(RAND_bytes(iv, sizeof(iv)) != 0);
+  use(iv, sizeof(iv));
+  // ruleid: raptor-unchecked-random-read
+  fr_assert(RAND_bytes(iv, sizeof(iv)) == 1);
+  use(iv, sizeof(iv));
+  return 0;
+}
+
+// An assertion on a value already checked is fine.
+int send_pac_checked(void) {
+  unsigned char iv[12];
+  int ok = RAND_bytes(iv, sizeof(iv));
+  // ok: raptor-unchecked-random-read
+  if (ok != 1)
+    return -1;
+  rad_assert(ok == 1);
+  use(iv, sizeof(iv));
+  return 0;
+}
+
+// The same code built with -DNDEBUG: the assertion discards its argument, so
+// the call is not even in the AST; found from the tokens.
+#define nd_rad_assert(expr) ((void)0)
+#define ND_ASSERT(x) do { } while (0)
+int send_pac_ndebug(void) {
+  unsigned char iv[12];
+  memset(iv, 0, sizeof(iv));
+  // ruleid: raptor-unchecked-random-read
+  nd_rad_assert(RAND_bytes(iv, sizeof(iv)) != 0);
+  use(iv, sizeof(iv));
+  // ruleid: raptor-unchecked-random-read
+  ND_ASSERT(getrandom(iv, sizeof(iv), 0) == sizeof(iv));
+  use(iv, sizeof(iv));
+  // ok: raptor-unchecked-random-read
+  nd_rad_assert(iv[0] != 0 || RAND_status());
+  return 0;
+}

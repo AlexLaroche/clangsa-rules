@@ -1,4 +1,6 @@
 #include "Common.h"
+#include "clang/Lex/Lexer.h"
+#include "llvm/Support/Regex.h"
 #include <algorithm>
 
 using namespace clang;
@@ -138,4 +140,23 @@ unsigned raptor::valueBits(const clang::Expr *E, const clang::ASTContext &Ctx) {
   if (T.isNull() || T->isDependentType() || !T->isIntegerType())
     return 0;
   return Ctx.getIntWidth(T);
+}
+
+bool raptor::isReleaseAssert(StringRef Name) {
+  static const llvm::Regex RE("^[[:alnum:]_]*assert[[:alnum:]_]*$", llvm::Regex::IgnoreCase);
+  std::string L = Name.lower();
+  StringRef S(L);
+  return RE.match(Name) && !S.starts_with("assert_") && !S.starts_with("ck_") &&
+         !S.contains("static") && !S.starts_with("expect");
+}
+
+bool raptor::inReleaseAssert(const Stmt *S, const ASTContext &Ctx) {
+  const SourceManager &SM = Ctx.getSourceManager();
+  SourceLocation L = S->getBeginLoc();
+  if (!L.isMacroID())
+    return false;
+  // The outermost macro invoked in the file (rad_assert(RAND_bytes(...)),
+  // assert(n == len)), whether S is its body or its argument.
+  SourceLocation X = SM.getExpansionLoc(L);
+  return isReleaseAssert(Lexer::getSourceText(CharSourceRange::getTokenRange(X), SM, Ctx.getLangOpts()));
 }

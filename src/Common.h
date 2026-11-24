@@ -50,6 +50,15 @@ llvm::StringRef calleeName(const clang::CallExpr *CE);
 
 bool isOneOf(llvm::StringRef S, std::initializer_list<llvm::StringRef> L);
 
+// A macro name that looks like an assertion release builds compile out
+// (assert, rad_assert, fr_assert, g_assert, DBG_ASSERT...); not static or
+// test-harness assertions (static_assert, assert_int_equal, ck_assert, EXPECT_*).
+bool isReleaseAssert(llvm::StringRef Name);
+
+// S sits inside such an assertion macro's own expansion (its argument
+// included), through any chain of wrapper macros.
+bool inReleaseAssert(const clang::Stmt *S, const clang::ASTContext &Ctx);
+
 // Strip parentheses and implicit/explicit casts.
 const clang::Expr *strip(const clang::Expr *E);
 

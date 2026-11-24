@@ -1,0 +1,46 @@
+{
+  "name": "freeradius-eap-fast-pac-iv-ndebug",
+  "cve": "",
+  "repo": "https://github.com/FreeRADIUS/freeradius-server.git",
+  "vulnerable": "064567a08f3b9d9b4863fab6060fafe296ac7de9",
+  "fixed": "708852c4a185822e9150128f5ca667696d9c469f",
+  "fixed_note": "Same fix, analysed as release builds compile it (-DNDEBUG): rad_assert() drops its argument, so the call is found from the tokens",
+  "setup": [
+    [
+      "./configure",
+      "--no-recursion",
+      "--disable-developer"
+    ],
+    [
+      "sh",
+      "-c",
+      "make src/freeradius-devel src/include/attributes.h src/include/features.h src/include/missing.h src/include/radpaths.h src/include/tls.h $(for d in share/dictionary.rfc* share/dictionary.vqp share/dictionary.freeradius; do echo src/include/${d#share/dictionary.}.h; done)"
+    ]
+  ],
+  "checker": "raptor.UncheckedRandomRead",
+  "args": [
+    "-I.",
+    "-Isrc",
+    "-include",
+    "src/freeradius-devel/autoconf.h",
+    "-include",
+    "src/freeradius-devel/build.h",
+    "-include",
+    "src/freeradius-devel/features.h",
+    "-include",
+    "src/freeradius-devel/radpaths.h",
+    "-DNDEBUG",
+    "-Isrc/modules/rlm_eap",
+    "-Isrc/modules/rlm_eap/libeap"
+  ],
+  "files": {
+    "src/modules/rlm_eap/types/rlm_eap_fast/eap_fast.c": {
+      "vulnerable": [
+        "rad_assert\\(RAND_bytes\\(pac\\.opaque\\.iv, sizeof\\(pac\\.opaque\\.iv\\)\\) != 0\\);"
+      ],
+      "fixed": [
+        "if \\(RAND_bytes\\(pac\\.opaque\\.iv, sizeof\\(pac\\.opaque\\.iv\\)\\) != 1\\) \\{"
+      ]
+    }
+  }
+}
