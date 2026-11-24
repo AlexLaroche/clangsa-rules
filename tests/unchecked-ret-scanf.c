@@ -64,3 +64,13 @@ int main(int argc, char *argv[])
 	printf("Result = %d\n", i / j);
 	return 0;
 }
+
+// Tested with ! (FreeRADIUS detail.c): the result is used.
+int detail_header(const char *buffer)
+{
+	int y;
+	// ok: raptor-unchecked-ret-scanf
+	if (!sscanf(buffer, "%*s %*s %*d %*d:%*d:%*d %d", &y))
+		return -1;
+	return y;
+}

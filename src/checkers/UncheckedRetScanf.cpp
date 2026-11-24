@@ -1,5 +1,5 @@
 // raptor.UncheckedRetScanf: a *scanf() call whose return value is
-// not assigned, compared, or returned.
+// not assigned, compared, tested as a condition, or returned.
 #include "Common.h"
 #include "Registry.h"
 #include "RetUtil.h"
@@ -26,9 +26,15 @@ public:
       if (raptor::isInitializer(U) || llvm::isa_and_nonnull<ReturnStmt>(U.User))
         continue;
       if (const auto *BO = llvm::dyn_cast_or_null<BinaryOperator>(U.User))
-        if (BO->isComparisonOp() ||
+        if (BO->isComparisonOp() || BO->isLogicalOp() ||
             (BO->getOpcode() == BO_Assign && BO->getRHS() == U.Operand))
           continue;
+      // tested as a condition: `if (!sscanf(...)) goto fail;`
+      if (const auto *UO = llvm::dyn_cast_or_null<UnaryOperator>(U.User);
+          UO && UO->getOpcode() == UO_LNot)
+        continue;
+      if (llvm::isa_and_nonnull<IfStmt, WhileStmt, DoStmt, ForStmt, ConditionalOperator>(U.User))
+        continue;
       raptor::reportAt(BR, this, "Unchecked return value of scanf()",
                        "The return value of " + raptor::calleeName(CE).str() +
                            "() is not checked, so a failed or partial "
