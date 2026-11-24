@@ -316,6 +316,33 @@ public:
       }
       if (!Best || K2 <= *Best)
         continue;
+      // A tighter test on the left of the && / || / ?: the subtraction is
+      // under (`len > 2 && b[len - 2] == '"'`).
+      bool Local = false;
+      for (const Stmt *C = Sub, *P = PM.getParent(Sub); P && !Local; C = P, P = PM.getParent(P)) {
+        std::vector<std::pair<const BinaryOperator *, bool>> Ts;
+        if (const auto *LB = dyn_cast<BinaryOperator>(P); LB && C == LB->getRHS()) {
+          if (LB->getOpcode() == BO_LAnd)
+            tests(LB->getLHS(), true, Ts);
+          else if (LB->getOpcode() == BO_LOr)
+            tests(LB->getLHS(), false, Ts);
+        } else if (const auto *CO = dyn_cast<ConditionalOperator>(P)) {
+          if (C == CO->getTrueExpr())
+            tests(CO->getCond(), true, Ts);
+          else if (C == CO->getFalseExpr())
+            tests(CO->getCond(), false, Ts);
+        }
+        for (auto [T, V] : Ts) {
+          std::vector<Bound> Bs;
+          lowerBounds(T, V, Ctx, Bs);
+          for (const Bound &Bd : Bs)
+            Local |= Bd.X == X && Bd.Y == Y && K2 <= Bd.K;
+        }
+        if (isa<Stmt>(P) && !isa<Expr>(P))
+          break; // the statement holding the expression
+      }
+      if (Local)
+        continue;
       bool Reassigned = false;
       for (auto &[K, Where] : Assigns)
         Reassigned |= K == X && before(First, Where) && before(Where, At);

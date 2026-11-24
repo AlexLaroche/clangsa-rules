@@ -177,3 +177,14 @@ size_t huge_bound(size_t len)
 	// ok: raptor-unchecked-unsigned-subtraction
 	return len - 2;
 }
+
+// The larger bound is on the left of the same && chain (FreeRADIUS
+// conffile.c / cf_file.c quoted-value scan).
+void trailing_quote(char *b, size_t len, int *has_spaces)
+{
+	if (len > 0 && b[len - 1] == '\\') {
+		// ok: raptor-unchecked-unsigned-subtraction
+		if (len > 2 && b[len - 2] == '"')
+			*has_spaces = 1;
+	}
+}
