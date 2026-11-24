@@ -438,6 +438,12 @@ int ends_with(const char *line, char *url)
 	// ok: raptor-off-by-one
 	if (len == 0 || url[len - 1] != '/')
 		return 4;
+	return 0;
+}
+
+// A test on another string does not guard this one.
+int ends_with_other(const char *line, char *url)
+{
 	// ruleid: raptor-off-by-one
 	if (*url || line[strlen(line) - 1] == ',')
 		return 5;
@@ -468,6 +474,52 @@ void trim_nl_unsigned(char *msg)
 	if (i >= 0 && msg[i] == '\n')
 		// ruleid: raptor-off-by-one
 		msg[i] = 0;
+}
+
+// Emptiness rejected by an earlier early-exit statement (FreeRADIUS
+// rlm_sqlcounter / rlm_passwd).
+int last_char(const char *reset)
+{
+	size_t len = strlen(reset);
+	if (len == 0)
+		return -1;
+	// ok: raptor-off-by-one
+	return reset[len - 1];
+}
+
+int strip_eol(char *string)
+{
+	size_t len = strlen(string);
+	if (!len)
+		return 0;
+	// ok: raptor-off-by-one
+	if (string[len - 1] == '\n')
+		len--;
+	if (!len)
+		return 0;
+	// ok: raptor-off-by-one
+	if (string[len - 1] == '\r')
+		len--;
+	return (int)len;
+}
+
+// The guard is no longer valid after the length changes.
+int strip_after_decrement(char *string)
+{
+	size_t len = strlen(string);
+	if (!len)
+		return 0;
+	len--;
+	// ruleid: raptor-off-by-one
+	return string[len - 1];
+}
+
+// A test of the first character against a non-NUL constant proves the
+// string is not empty (FreeRADIUS sql.c quoted names).
+int quoted(const char *s)
+{
+	// ok: raptor-off-by-one
+	return (s[0] == '\'' || s[0] == '"') && s[0] == s[strlen(s) - 1];
 }
 
 int main()

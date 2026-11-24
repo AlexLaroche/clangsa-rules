@@ -40,6 +40,10 @@ bool testsNonEmpty(const Expr *Cond, const ASTContext &Ctx,
   if (BO->getOpcode() == BO_LAnd)
     return testsNonEmpty(BO->getLHS(), Ctx, IsLen) ||
            testsNonEmpty(BO->getRHS(), Ctx, IsLen);
+  // `s[0] == '\'' || s[0] == '"'`: every alternative proves it
+  if (BO->getOpcode() == BO_LOr)
+    return testsNonEmpty(BO->getLHS(), Ctx, IsLen) &&
+           testsNonEmpty(BO->getRHS(), Ctx, IsLen);
   auto val = [&](const Expr *E, int64_t &V) {
     Expr::EvalResult R;
     if (E->isValueDependent() || !E->EvaluateAsInt(R, Ctx))
@@ -59,7 +63,7 @@ bool testsNonEmpty(const Expr *Cond, const ASTContext &Ctx,
   if (!val(R, V))
     return false;
   return (Op == BO_GT && V >= 0) || (Op == BO_NE && V == 0) ||
-         (Op == BO_GE && V >= 1);
+         (Op == BO_GE && V >= 1) || (Op == BO_EQ && V != 0);
 }
 
 // The value of E as an integer constant, if it is one.
@@ -131,10 +135,53 @@ using CondTest = std::function<bool(const Expr *)>;
 // Is S reached only when Pos holds (the right of an &&, the then-branch of an
 // if, the true branch of a ?:, the body of a loop) or when Neg fails (the
 // right of an ||, the else-branch)?
+// Does S always leave the enclosing block: return, goto, break, continue,
+// a noreturn call, or a block ending in one?
+bool alwaysExits(const Stmt *S) {
+  if (!S)
+    return false;
+  if (isa<ReturnStmt>(S) || isa<GotoStmt>(S) || isa<BreakStmt>(S) || isa<ContinueStmt>(S))
+    return true;
+  if (const auto *CS = dyn_cast<CompoundStmt>(S))
+    return !CS->body_empty() && alwaysExits(CS->body_back());
+  if (const auto *CE = dyn_cast<CallExpr>(S))
+    if (const FunctionDecl *FD = CE->getDirectCallee())
+      return FD->isNoReturn();
+  return false;
+}
+
+// Does S write a variable (assignment, ++/--)?
+bool writesAny(const Stmt *S) {
+  if (!S)
+    return false;
+  if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->isAssignmentOp())
+    return true;
+  if (const auto *UO = dyn_cast<UnaryOperator>(S); UO && UO->isIncrementDecrementOp())
+    return true;
+  for (const Stmt *C : S->children())
+    if (writesAny(C))
+      return true;
+  return false;
+}
+
 bool underTest(const Stmt *S, const ParentMap &PM, const CondTest &Pos,
                const CondTest &Neg) {
   for (const Stmt *Child = S, *P = PM.getParent(S); P;
        Child = P, P = PM.getParent(P)) {
+    // An earlier statement of the block that leaves it when the test fails
+    // (`if (!len) return -1;`), with nothing written in between.
+    if (const auto *CS = dyn_cast<CompoundStmt>(P)) {
+      const Stmt *const *It = llvm::find(CS->body(), Child);
+      while (It != CS->body_begin()) {
+        const Stmt *Prev = *--It;
+        if (const auto *If = dyn_cast<IfStmt>(Prev);
+            If && !If->getElse() && !If->getInit() && Neg(If->getCond()) &&
+            alwaysExits(If->getThen()))
+          return true;
+        if (writesAny(Prev))
+          break;
+      }
+    }
     if (const auto *BO = dyn_cast<BinaryOperator>(P); BO && Child == BO->getRHS()) {
       if (BO->getOpcode() == BO_LAnd && Pos(BO->getLHS()))
         return true;
