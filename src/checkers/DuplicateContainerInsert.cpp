@@ -23,8 +23,12 @@
 // `ap_add_output_filter_handle(h, ctx, r, c)`, are not; nor is the argument
 // that follows a callback, `isc_work_enqueue(loop, lane, cb, done, arg)`), or an
 // assignment through the slot such a call returns (`*(T *)apr_array_push(c) =
-// x`). Keyed containers (hash, map, dict, table, tree, trie, cache) are left
-// out: adding a key again replaces the entry. A call to a function defined in
+// x`). Keyed containers (hash, map, dict, table, tree, trie, cache, rb, avl,
+// skiplist) are left out: adding a key again replaces or refuses the entry.
+// The container must be able to hold pointers (opaque, or a record with a
+// pointer, array or record member): pushing an interpreter frame with a
+// result record (`push_with_result(unlang_result_t *p, ..., uctx)`) stores
+// nothing. A call to a function defined in
 // the file is not an add site: the add inside it is checked where it is.
 // Object: a variable holding a pointer to a struct, not one set in the
 // function from an allocator (`*_new`, malloc...): a fresh object cannot be
@@ -37,8 +41,14 @@
 //   - a condition on the object's position field: the field the add itself
 //     maintains (`offsetof(channel_t, sched_heap_idx)`), or one named like a
 //     position or a membership flag (`*idx`, `*index`, `queued`, `in_*`);
-//   - the object removed or popped from the same container earlier in the
-//     function (`smartlist_pqueue_remove(c, ..., x)`, `x = pop(c)`).
+//   - a membership predicate on the object (`heap_entry_inserted(x->idx)`,
+//     `smartlist_contains(c, x)`), or the add's own result tested (an API
+//     that reports duplicates: `if (fr_heap_insert(&h, x) < 0)`);
+//   - the object removed, extracted or popped from the same container
+//     earlier in the function (`smartlist_pqueue_remove(c, ..., x)`, `x =
+//     pop(c)`, `pop((void **)&x, &c)`), out of whatever holds it by a
+//     one-argument helper (`conn_remove(x)`), or taken off any container
+//     (`x = list_pop_head(&free_list)`).
 //
 // CVE-2026-23918 (Apache httpd mod_http2 m->spurge, double free on early
 // reset), CVE-2018-0491 (Tor KIST channels_pending, use after free).
@@ -71,10 +81,41 @@ bool nameMatches(StringRef Name, const char *Pattern) {
 
 bool isAddName(StringRef N) {
   return nameMatches(N, "(^|_)(push|add|append|insert|enqueue|prepend)(_|$)") &&
-         !nameMatches(N, "hash|map|dict|table|tree|trie|cache");
+         !nameMatches(N, "hash|map|dict|table|tree|trie|cache|(^|_)rb(_|$)|avl|skiplist");
 }
 bool isRemoveName(StringRef N) {
-  return nameMatches(N, "(^|_)(remove|del|delete|pop|take|unlink|erase|detach|steal|shift)(_|$)");
+  return nameMatches(N, "(^|_)(remove|del|delete|pop|take|unlink|erase|detach|steal|shift|extract|dequeue)(_|$)");
+}
+// Calls that hand out an element taken off a container (a free list, a
+// queue): `item = list_pop_head(&free)`.
+bool isTakeName(StringRef N) {
+  return nameMatches(N, "(^|_)(pop|take|shift|dequeue)(_|$)");
+}
+// A membership predicate (`fr_heap_entry_inserted(r->runnable)`,
+// `smartlist_contains(sl, x)`, `list_is_linked(&x->entry)`).
+bool isMembershipCall(StringRef N) {
+  return nameMatches(N, "inserted|contains|is_member|(^|_)(in|on)_(list|tree|heap|queue|set)(_|$)|"
+                        "is_(queued|linked|listed)");
+}
+
+// A type that can hold pointers to other objects: opaque, or a record
+// with a pointer or array member (`array_t { char *elts; }`). A record of
+// plain values (`unlang_result_t { int rcode; int priority; }`, a frame
+// push's result slot) is not a container.
+bool canHoldPointers(QualType T) {
+  T = T.getCanonicalType();
+  const auto *RT = T->getAs<RecordType>();
+  if (!RT)
+    return true;
+  const RecordDecl *RD = RT->getDecl()->getDefinition();
+  if (!RD)
+    return true;
+  for (const FieldDecl *F : RD->fields()) {
+    QualType FT = F->getType().getCanonicalType();
+    if (FT->isPointerType() || FT->isArrayType() || FT->isRecordType())
+      return true;
+  }
+  return false;
 }
 bool isFreshName(StringRef N) {
   return nameMatches(N, "alloc|(^|_)(new|create|make|dup|clone|copy)(_|$)|_new$|^new");
@@ -165,6 +206,9 @@ bool addSite(const Stmt *S, Site &Out) {
       return false;
   const ValueDecl *C = containerOf(CE->getArg(0));
   if (!C)
+    return false;
+  if (QualType CT = raptor::strip(CE->getArg(0))->getType(); CT->isPointerType() &&
+                                                           !canHoldPointers(CT->getPointeeType()))
     return false;
   // The object goes into a generic slot: a `void *` parameter
   // (`smartlist_add(sl, void *item)`, `g_ptr_array_add(a, gpointer)`). A
@@ -262,7 +306,7 @@ public:
       if (!CE)
         return;
       StringRef N = raptor::calleeName(CE);
-      if (isFreshName(N) || (isRemoveName(N) && refersTo(CE, S.Container)))
+      if (isFreshName(N) || isTakeName(N) || (isRemoveName(N) && refersTo(CE, S.Container)))
         Yes = true;
     };
     if (S.Object->getInit() && S.Object->getDeclContext() == FD)
@@ -281,11 +325,17 @@ public:
     // Removed from the same container first.
     bool Removed = false;
     walk(FD->getBody(), [&](const Stmt *N) {
-      if (const auto *CE = dyn_cast<CallExpr>(N))
-        if (CE != S.Call && before(CE, S.At) && isRemoveName(raptor::calleeName(CE)) &&
-            CE->getNumArgs() >= 2 && containerOf(CE->getArg(0)) == S.Container &&
-            refersTo(CE, S.Object))
-          Removed = true;
+      const auto *CE = dyn_cast<CallExpr>(N);
+      if (!CE || CE == S.Call || !before(CE, S.At) || !isRemoveName(raptor::calleeName(CE)) ||
+          !refersTo(CE, S.Object))
+        return;
+      if (CE->getNumArgs() == 1)
+        Removed = true;  // `conn_remove(c)`: out of whatever holds it
+      else if (llvm::any_of(CE->arguments(), [&](const Expr *A) {
+                 // `pop(c, x)`, `fr_heap_pop((void **)&x, &c)`
+                 return containerOf(A) == S.Container;
+               }))
+        Removed = true;
     });
     if (Removed)
       return true;
@@ -298,8 +348,23 @@ public:
     offsetofFields(S.Call, PosFields);
 
     for (const Expr *C : Conds) {
-      if (!C || !before(C, S.At))
+      if (!C)
         continue;
+      // The add's own result is tested: an API that reports duplicates
+      // (`if (fr_heap_insert(&h, x) < 0)`).
+      bool Tested = false;
+      walk(C, [&](const Stmt *N) { Tested |= N == S.Call; });
+      if (Tested)
+        return true;
+      if (!before(C, S.At))
+        continue;
+      bool Member = false;
+      walk(C, [&](const Stmt *N) {
+        if (const auto *CE = dyn_cast<CallExpr>(N))
+          Member |= isMembershipCall(raptor::calleeName(CE)) && refersTo(CE, S.Object);
+      });
+      if (Member)
+        return true;
       if (refersTo(C, S.Object) && refersToAny(C, FromC))
         return true;
       bool Pos = false;

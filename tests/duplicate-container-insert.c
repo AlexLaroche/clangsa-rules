@@ -278,3 +278,102 @@ void xfr_like2(xfr_t *xfr) {
   // ok: raptor-duplicate-container-insert
   work_enqueue(xfr->loop, 1, apply, apply_done, xfr);
 }
+
+/* ---- FreeRADIUS master noise (2026-11-23 scan) ---- */
+
+/* A comparator-keyed red-black tree refuses an element equal to one already
+ * in it (fr_rb_insert: search, then insert). */
+typedef struct fr_rb_tree fr_rb_tree_t;
+int fr_rb_insert(fr_rb_tree_t *tree, void const *data);
+typedef struct conf_item { int k; } conf_item_t;
+typedef struct conf_section { fr_rb_tree_t *ident1; } conf_section_t;
+void cf_add_1(conf_section_t *cs, conf_item_t *ci) {
+  // ok: raptor-duplicate-container-insert
+  fr_rb_insert(cs->ident1, ci);
+}
+void cf_add_2(conf_section_t *cs, conf_item_t *ci) {
+  // ok: raptor-duplicate-container-insert
+  fr_rb_insert(cs->ident1, ci);
+}
+
+/* Membership predicate on the object before the add
+ * (fr_assert(!fr_heap_entry_inserted(request->runnable))). */
+typedef struct fr_heap fr_heap_t;
+typedef unsigned fr_heap_index_t;
+int fr_heap_insert(fr_heap_t **hp, void *data);
+int fr_heap_extract(fr_heap_t **hp, void *data);
+int fr_heap_pop_out(void **out, fr_heap_t **hp);
+int fr_heap_entry_inserted(fr_heap_index_t idx);
+typedef struct request { fr_heap_index_t runnable; int n; } request_t;
+typedef struct worker { fr_heap_t *runnable; fr_heap_t *free_list; } worker_t;
+void worker_run_1(worker_t *w, request_t *r) {
+  if (fr_heap_entry_inserted(r->runnable))
+    abort();
+  // ok: raptor-duplicate-container-insert
+  fr_heap_insert(&w->runnable, r);
+}
+/* Removed by an "extract" call first (trunk.c fr_minmax_heap_extract). */
+void worker_run_2(worker_t *w, request_t *r) {
+  fr_heap_extract(&w->runnable, r);
+  // ok: raptor-duplicate-container-insert
+  fr_heap_insert(&w->runnable, r);
+}
+/* Popped through an out-parameter (master.c fr_heap_pop((void **)&c, &h)). */
+void worker_run_3(worker_t *w) {
+  request_t *r;
+  fr_heap_pop_out((void **)&r, &w->runnable);
+  r->n++;
+  // ok: raptor-duplicate-container-insert
+  fr_heap_insert(&w->runnable, r);
+}
+/* Taken from another container: a free-list recycle (bio/retry.c). */
+request_t *list_pop_head(fr_heap_t **l);
+void worker_run_4(worker_t *w) {
+  request_t *r = list_pop_head(&w->free_list);
+  // ok: raptor-duplicate-container-insert
+  fr_heap_insert(&w->runnable, r);
+}
+/* The add's own result is checked (a dedup-aware API: rlm_cache
+ * `if (fr_heap_insert(&heap, c) < 0) { ...; return ERROR; }`). */
+int worker_run_5(worker_t *w, request_t *r) {
+  // ok: raptor-duplicate-container-insert
+  if (fr_heap_insert(&w->runnable, r) < 0)
+    return -1;
+  return 0;
+}
+
+/* Pushing an interpreter frame, not storing an item: the "container" is a
+ * result record that cannot hold pointers
+ * (_unlang_function_push_with_result(p_result, ..., uctx)). */
+typedef struct unlang_result { int rcode; int priority; } unlang_result_t;
+typedef int (*unlang_fn_t)(void *);
+int sql_query(void *);
+int _unlang_function_push_with_result(unlang_result_t *p, unlang_fn_t f, const char *name,
+                                      unlang_fn_t repeat, const char *rname, int top, void *uctx);
+typedef struct ippool_ctx { int n; } ippool_ctx_t;
+int ippool_resume(unlang_result_t *p, ippool_ctx_t *ctx, int status) {
+  switch (status) {
+  case 0:
+    ctx->n = 1;
+    // ok: raptor-duplicate-container-insert
+    return _unlang_function_push_with_result(p, sql_query, "sql_query", NULL, NULL, 1, ctx);
+  default:
+    ctx->n = 2;
+    // ok: raptor-duplicate-container-insert
+    return _unlang_function_push_with_result(p, sql_query, "sql_query", NULL, NULL, 0, ctx);
+  }
+}
+
+/* Taken out of whatever container holds it by a helper that takes only the
+ * object (trunk.c: trunk_connection_remove(tconn) in the preceding switch). */
+void conn_remove(request_t *r);
+void conn_requeue(worker_t *w, request_t *r) {
+  conn_remove(r);
+  // ok: raptor-duplicate-container-insert
+  fr_heap_insert(&w->runnable, r);
+}
+void conn_requeue_2(worker_t *w, request_t *r) {
+  conn_remove(r);
+  // ok: raptor-duplicate-container-insert
+  fr_heap_insert(&w->runnable, r);
+}
