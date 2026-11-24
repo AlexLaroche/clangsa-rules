@@ -11,7 +11,9 @@
 //  - the wiped memory is freed by the next statement that mentions it,
 //    in the same block: `memset(pair->value, 0, strlen(pair->value));
 //    l_free(pair->value);`, `memset(c, 0, sizeof(*c)); free(c);`. Any
-//    function whose name ends in "free" counts as the release.
+//    function whose name ends in "free" counts as the release, except one
+//    of another library declared in a system header (talloc_free, g_free):
+//    an opaque call that may read the bytes.
 //
 // A non-zero fill (poisoning), a wipe of memory that outlives the function
 // (parameters, globals, statics, members of a caller's object) and a memset
@@ -238,6 +240,18 @@ bool isRelease(const Stmt *S, const Expr *Buf) {
   const auto *Call = dyn_cast_or_null<CallExpr>(raptor::strip(dyn_cast_or_null<Expr>(S)));
   if (!Call || Call->getNumArgs() < 1 || !raptor::calleeName(Call).ends_with_insensitive("free"))
     return false;
+  // A release function of another shared library, declared in a system
+  // header (talloc's _talloc_free, g_free): the compiler cannot see into it
+  // and must assume it reads the bytes. libc's free() it knows; a project's
+  // own (ell l_free) it may inline or see under LTO.
+  if (const FunctionDecl *FD = Call->getDirectCallee(); FD && !FD->getBuiltinID()) {
+    const SourceManager &SM = FD->getASTContext().getSourceManager();
+    StringRef N = FD->getName();
+    if (SM.isInSystemHeader(FD->getLocation()) &&
+        !raptor::isOneOf(N, {"free", "cfree", "kfree", "kvfree", "kfree_sensitive", "kzfree"}) &&
+        !FD->hasAttr<OwnershipAttr>())
+      return false;
+  }
   const Expr *Arg = Call->getArg(0);
   // the buffer itself, or memory inside the freed object (`&c->k`, `c->k`)
   for (const Expr *E = raptor::strip(Buf); E;) {

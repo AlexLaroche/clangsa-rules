@@ -322,3 +322,28 @@ size_t init_after_sizeof(void) {
   memset(buf, 0, sizeof(buf));
   return n;
 }
+
+// Released by a function of a shared library, declared in a system header
+// (talloc): an opaque call that may read the bytes, so the wipe stays
+// (FreeRADIUS mppe_keys.c, rlm_eap_fast.c). libc free() is still a release.
+# 1 "/usr/include/talloc.h" 1 3
+void *_talloc_zero(const void *ctx, size_t size, const char *name);
+int _talloc_free(void *ptr, const char *location);
+# 333 "elidable-secret-wipe.c" 2
+#define talloc_free(p) _talloc_free(p, __FILE__)
+void derive_key(unsigned char *out) {
+  unsigned char *buf = _talloc_zero(NULL, 64, "buf");
+  consume(buf, 64);
+  memcpy(out, buf, 32);
+  // ok: raptor-elidable-secret-wipe
+  memset(buf, 0, 64);
+  talloc_free(buf);
+}
+void derive_key_libc(unsigned char *out) {
+  unsigned char *buf = malloc(64);
+  consume(buf, 64);
+  memcpy(out, buf, 32);
+  // ruleid: raptor-elidable-secret-wipe
+  memset(buf, 0, 64);
+  free(buf);
+}
