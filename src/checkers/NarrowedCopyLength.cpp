@@ -19,7 +19,10 @@
 //     the local it was narrowed into (OpenSSL `dlen != (size_t)ilen`): such a
 //     check bounds the narrowing.
 // Not narrowings of V: a value that provably fits (`15 - ((len + 20) %
-// 16)`), and a call's result when V is only one of its arguments.
+// 16)`), a call's result when V is only one of its arguments, and the
+// implicit conversion of an allocation call's argument to the allocator's own
+// parameter type (talloc's `_talloc_array(ctx, size, unsigned count, ...)`):
+// that is the API's design, repeated at every call.
 // Macro expansions are analysed (Onigmo's BBUF_ADD); the report is at the
 // narrowing.
 //
@@ -118,10 +121,19 @@ public:
       const VarDecl *V;
     };
     std::vector<Narrowing> Ns;
+    ParentMap PM(const_cast<Stmt *>(Body));
     walk(Body, [&](const Stmt *S) {
       const auto *CE = dyn_cast<CastExpr>(S);
       if (!CE || CE->getCastKind() != CK_IntegralCast)
         return;
+      // The implicit conversion of an allocation call's argument to the
+      // allocator's own parameter type (talloc's `unsigned count`) is the
+      // API's design, repeated at every call, not a narrowing the code chose.
+      if (isa<ImplicitCastExpr>(CE)) {
+        const Stmt *P = PM.getParentIgnoreParens(CE);
+        if (const auto *Call = dyn_cast_or_null<CallExpr>(P); Call && isAlloc(Call))
+          return;
+      }
       QualType To = CE->getType(), From = CE->getSubExpr()->getType();
       if (!To->isIntegerType() || !From->isIntegerType())
         return;
@@ -137,8 +149,6 @@ public:
     });
     if (Ns.empty())
       return;
-
-    ParentMap PM(const_cast<Stmt *>(Body));
 
     // Does E size a buffer: inside an allocation size, or a relational
     // comparison that does not mention V?

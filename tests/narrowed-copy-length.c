@@ -218,3 +218,18 @@ void lms_sign(unsigned char *dst, const unsigned char *src, size_t cb) {
   for (unsigned char j = 0; j < coeff; j++)
     dst[j] = 0;
 }
+
+// An allocator API whose count parameter is `unsigned` (talloc's
+// _talloc_array): the implicit conversion at every call is the API's design,
+// not a narrowing the code chose; FreeRADIUS talloc_bstrndup and 17 more.
+void *_talloc_array(const void *ctx, size_t el_size, unsigned count, const char *name);
+#define talloc_array(ctx, type, count) (type *)_talloc_array(ctx, sizeof(type), count, #type)
+char *talloc_bstrndup(const void *ctx, const char *in, size_t inlen) {
+  // ok: raptor-narrowed-copy-length
+  char *p = talloc_array(ctx, char, inlen + 1);
+  if (!p)
+    return NULL;
+  memcpy(p, in, inlen);
+  p[inlen] = '\0';
+  return p;
+}
