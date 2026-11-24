@@ -347,3 +347,20 @@ void derive_key_libc(unsigned char *out) {
   memset(buf, 0, 64);
   free(buf);
 }
+
+// The buffer's address is stored in a struct initialiser, and the struct is
+// passed on: the memset initialises memory read later (FreeRADIUS trie.c
+// fr_trie_walk).
+struct walk_cb { unsigned char *start, *end; void *ctx; };
+int walk(struct walk_cb *cb);
+int trie_walk(void *ctx) {
+  unsigned char buffer[65];
+  struct walk_cb my_cb = {
+    .start = buffer,
+    .end = buffer + sizeof(buffer),
+    .ctx = ctx,
+  };
+  // ok: raptor-elidable-secret-wipe
+  memset(buffer, 0, sizeof(buffer));
+  return walk(&my_cb);
+}

@@ -121,8 +121,19 @@ VarSet withAliases(const Stmt *Body, const VarDecl *V) {
       if (const ValueDecl *R = rootVar(B->getLHS()))
         Vs.insert(R);
   });
+  // `char *p = buf;`, and a record initialised with a pointer into V
+  // (`struct cb c = { .start = buf };`)
+  std::function<bool(const Expr *)> Holds = [&](const Expr *E) -> bool {
+    if (const auto *IL = dyn_cast_or_null<InitListExpr>(E ? E->IgnoreImplicit() : nullptr)) {
+      for (const Expr *I : IL->inits())
+        if (Holds(I))
+          return true;
+      return false;
+    }
+    return PointsInto(E);
+  };
   forEach<VarDecl>(Body, [&](const VarDecl *D) {
-    if (D != V && PointsInto(D->getInit()))
+    if (D != V && Holds(D->getInit()))
       Vs.insert(D);
   });
   return Vs;
