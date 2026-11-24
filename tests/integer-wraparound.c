@@ -501,3 +501,25 @@ void *rows_alloc(size_t rows, size_t cols)
 	free(a);
 	return b;
 }
+
+// String lengths assigned after the declaration, not in the initialiser
+// (FreeRADIUS dlopen.c, radmin.c): still lengths of strings in memory.
+char *join_ext(const char *argv, const char *ext)
+{
+	size_t len, len2;
+	char *p;
+	len = strlen(argv);
+	len2 = strlen(ext) + 1;
+	if (len2 < 5)
+		len2 = 5;
+	// ok: raptor-integer-wraparound
+	p = malloc(len + len2);
+	return p;
+}
+char *copy_word(const char *str, const char *p)
+{
+	size_t len;
+	len = p - str;
+	// ok: raptor-integer-wraparound
+	return malloc(len + 1);
+}

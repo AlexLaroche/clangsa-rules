@@ -28,42 +28,58 @@ bool plusNotSelf(const BinaryOperator *BO, const ASTContext &Ctx) {
   return BO->getOpcode() == BO_Add && (notOf(BO->getRHS(), BO->getLHS()) ||
                                        notOf(BO->getLHS(), BO->getRHS()));
 }
-// Is V written anywhere in S after its initialisation (assigned, ++/--, or
-// its address taken)?
-bool written(const Stmt *S, const VarDecl *V) {
-  if (!S)
-    return false;
-  auto isV = [&](const Expr *E) {
-    const auto *D = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
-    return D && D->getDecl() == V;
-  };
-  if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->isAssignmentOp() && isV(BO->getLHS()))
-    return true;
-  if (const auto *UO = dyn_cast<UnaryOperator>(S);
-      UO && (UO->isIncrementDecrementOp() || UO->getOpcode() == UO_AddrOf) && isV(UO->getSubExpr()))
-    return true;
-  for (const Stmt *C : S->children())
-    if (written(C, V))
-      return true;
-  return false;
-}
+bool strLengthSum(const Expr *E, const ASTContext &Ctx);
 // The length of a string in memory: strlen(...) or wcslen(...) itself, or an
-// unsigned local at least as wide as size_t initialised from one and never
-// written again.
+// unsigned local at least as wide as size_t whose every write is a plain
+// assignment (or the initialiser) of such a length, a sum of lengths and
+// constants, a pointer difference inside one object (`len = p - str`) or a
+// constant (`if (len2 < 5) len2 = 5;`).
 bool isStrLength(const Expr *E, const ASTContext &Ctx) {
   E = E->IgnoreParenImpCasts();
   if (const auto *CE = dyn_cast<CallExpr>(E))
     return raptor::isOneOf(raptor::calleeName(CE), {"strlen", "wcslen"});
   const auto *DRE = dyn_cast<DeclRefExpr>(E);
   const auto *V = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
-  if (!V || !V->isLocalVarDecl() || !V->getInit() || !V->getType()->isUnsignedIntegerType() ||
+  if (!V || !V->isLocalVarDecl() || !V->getType()->isUnsignedIntegerType() ||
       Ctx.getIntWidth(V->getType()) < Ctx.getIntWidth(Ctx.getSizeType()))
     return false;
-  const auto *CE = dyn_cast<CallExpr>(V->getInit()->IgnoreParenImpCasts());
-  if (!CE || !raptor::isOneOf(raptor::calleeName(CE), {"strlen", "wcslen"}))
-    return false;
   const auto *FD = dyn_cast_or_null<FunctionDecl>(V->getParentFunctionOrMethod());
-  return FD && !written(FD->getBody(), V);
+  if (!FD)
+    return false;
+  static thread_local llvm::SmallPtrSet<const VarDecl *, 8> Visiting;
+  if (!Visiting.insert(V).second)
+    return false; // `len = len + 1`: not a fixed length
+  auto Length = [&](const Expr *R) {
+    R = R->IgnoreParenImpCasts();
+    if (const auto *B = dyn_cast<BinaryOperator>(R);
+        B && B->getOpcode() == BO_Sub && B->getLHS()->getType()->isPointerType() &&
+        B->getRHS()->getType()->isPointerType())
+      return true;
+    return strLengthSum(R, Ctx);
+  };
+  bool Ok = !V->getInit() || Length(V->getInit());
+  bool Any = V->getInit() != nullptr;
+  std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
+    if (!S || !Ok)
+      return;
+    auto isV = [&](const Expr *X) {
+      const auto *D = dyn_cast<DeclRefExpr>(X->IgnoreParenImpCasts());
+      return D && D->getDecl() == V;
+    };
+    if (const auto *BO = dyn_cast<BinaryOperator>(S); BO && BO->isAssignmentOp() && isV(BO->getLHS())) {
+      Any = true;
+      Ok = BO->getOpcode() == BO_Assign && Length(BO->getRHS());
+    } else if (const auto *UO = dyn_cast<UnaryOperator>(S);
+               UO && (UO->isIncrementDecrementOp() || UO->getOpcode() == UO_AddrOf) &&
+               isV(UO->getSubExpr())) {
+      Ok = false;
+    }
+    for (const Stmt *C : S->children())
+      Walk(C);
+  };
+  Walk(FD->getBody());
+  Visiting.erase(V);
+  return Ok && Any;
 }
 // A constant: an integer constant expression, or built only from those and
 // const-qualified variables with constant initialisers. C does not make
